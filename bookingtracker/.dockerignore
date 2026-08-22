@@ -6,7 +6,6 @@ logs/
 *.db-*
 *.sqlite*
 *Cookies*
-*Session*
 *Singleton*
 *Login Data*
 *Local State*

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+Include the browser session detection module in the self-contained add-on source tree.
+
 ## 0.1.3
 
 Use POSIX `sh` startup options on Debian slim.

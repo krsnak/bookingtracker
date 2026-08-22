@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
@@ -10,6 +13,7 @@ def test_addon_build_context_is_self_contained() -> None:
     assert (ROOT / "run.sh").is_file()
     assert (ROOT / "pyproject.toml").is_file()
     assert (ROOT / "app").is_dir()
+    assert (ROOT / "app" / "browser" / "session.py").is_file()
     assert (ROOT / "scripts" / "container_browser_smoke.py").is_file()
     run_script = (ROOT / "run.sh").read_text()
     assert run_script.startswith("#!/bin/sh\n")
@@ -28,3 +32,16 @@ def test_addon_build_context_is_self_contained() -> None:
     for source in copies:
         assert ".." not in source
         assert (ROOT / source.rstrip("/")).exists()
+
+
+def test_production_entrypoint_imports_from_self_contained_tree() -> None:
+    environment = os.environ | {"PYTHONPATH": str(ROOT)}
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.web.main; import app.browser.session"],
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
