@@ -33,6 +33,15 @@ class NavigationStatus(StrEnum):
     CAPTCHA_REQUIRED = "captcha_required"
 
 
+class RemoteDesktopState(StrEnum):
+    DISABLED = "disabled"
+    STARTING_DISPLAY = "starting_display"
+    READY = "ready"
+    SESSION_ACTIVE = "session_active"
+    STOPPING = "stopping"
+    ERROR = "error"
+
+
 @dataclass(frozen=True)
 class BrowserHealth:
     state: BrowserState
@@ -43,6 +52,17 @@ class BrowserHealth:
     manual_action_required: bool
     last_successful_navigation: datetime | None
     last_error: str | None
+
+
+@dataclass(frozen=True)
+class RemoteDesktopHealth:
+    state: RemoteDesktopState
+    display_running: bool
+    window_manager_running: bool
+    vnc_running: bool
+    websockify_running: bool
+    manual_lease_active: bool
+    error: str | None
 
 
 @dataclass(frozen=True)

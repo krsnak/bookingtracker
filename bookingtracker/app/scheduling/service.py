@@ -26,6 +26,7 @@ class CheckRunner:
         policy: SchedulePolicy,
         alerts: AlertService,
         clock: Callable[[], datetime] | None = None,
+        manual_session_active: Callable[[], bool] | None = None,
     ) -> None:
         self.reservations = reservations
         self.checks = checks
@@ -33,10 +34,15 @@ class CheckRunner:
         self.policy = policy
         self.alerts = alerts
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.manual_session_active = manual_session_active or (lambda: False)
         self._lock = Lock()
 
     def run_check(self, reservation_id: UUID, trigger: CheckTrigger) -> PriceCheckRecord | None:
+        if self.manual_session_active():
+            return None
         with self._lock:
+            if self.manual_session_active():
+                return None
             reservation = self.reservations.get(reservation_id)
             if reservation is None or not reservation.active:
                 return None
@@ -55,6 +61,11 @@ class CheckRunner:
             self.schedules.save(updated)
             self.alerts.process(record, consecutive_failures=updated.consecutive_failures)
             return record
+
+    def begin_manual_session(self, acquire: Callable[[], bool]) -> bool:
+        """Atomically acquire the lease after any in-flight check has finished."""
+        with self._lock:
+            return acquire()
 
 
 class ReservationScheduler:

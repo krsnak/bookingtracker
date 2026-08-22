@@ -210,3 +210,26 @@ def test_shared_runner_serializes_manual_and_scheduled_browser_checks(tmp_path) 
     second.join(timeout=1)
 
     assert pipeline.calls == [stored.id, stored.id]
+
+
+def test_manual_remote_lease_blocks_scheduler_without_a_price_check(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "scheduler.db")
+    reservations = ReservationRepository(database)
+    stored = reservations.create(reservation(active=True))
+    history = PriceCheckRepository(database)
+    pipeline = StaticPipeline(history, PriceCheckStatus.NO_MATCH)
+    now = datetime(2026, 8, 22, 12, tzinfo=UTC)
+    runner = CheckRunner(
+        reservations,
+        pipeline,  # type: ignore[arg-type]
+        ScheduleStateRepository(database),
+        SchedulePolicy(jitter_seconds=lambda maximum: 0),
+        AlertService(AlertRepository(database), history, RecordingNotifier()),
+        clock=lambda: now,
+        manual_session_active=lambda: True,
+    )
+
+    assert ReservationScheduler(runner).run_due() == []
+    assert runner.run_check(stored.id, CheckTrigger.MANUAL) is None
+    assert pipeline.calls == []
+    assert history.latest(stored.id) is None

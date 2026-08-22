@@ -21,9 +21,19 @@ def test_addon_build_context_is_self_contained() -> None:
     assert "pipefail" not in run_script
     assert "--reload" not in run_script
     assert "exec /opt/venv/bin/python -m uvicorn" in run_script
+    assert "BOOKINGTRACKER_BROWSER_HEADLESS=false" in run_script
+    assert "BOOKINGTRACKER_REMOTE_DESKTOP_ENABLED=true" in run_script
+    assert "BOOKINGTRACKER_BROWSER_DISPLAY=:99" in run_script
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert "debian:12-slim" in dockerfile
     assert "apt-get install" in dockerfile and "chromium" in dockerfile
+    for package in ("xvfb", "openbox", "x11vnc", "novnc", "websockify", "xauth"):
+        assert package in dockerfile
+    assert "test -f /usr/share/novnc/vnc.html" in dockerfile
+    assert "test -d /usr/share/novnc/app" in dockerfile
+    assert "test -d /usr/share/novnc/core" in dockerfile
+    assert 'version: "0.2.0"' in (ROOT / "config.yaml").read_text()
+    assert "ports: {}" in (ROOT / "config.yaml").read_text()
     copies = [
         line.split(maxsplit=2)[1]
         for line in (ROOT / "Dockerfile").read_text().splitlines()

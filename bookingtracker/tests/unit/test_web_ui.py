@@ -3,10 +3,55 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.config import AppPaths
+import pytest
+from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
+from app.config import AppPaths, RemoteDesktopSettings
 from app.reservations.models import Reservation
 from app.web.app import create_app
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+
+
+class FakeRemoteRuntime:
+    def __init__(self, assets) -> None:  # noqa: ANN001
+        self.settings = RemoteDesktopSettings(enabled=True, novnc_assets_dir=assets)
+        self.enabled = True
+        self.active = False
+        self.display_started = False
+
+    @property
+    def novnc_assets_dir(self):  # noqa: ANN201
+        return self.settings.novnc_assets_dir
+
+    @property
+    def session_active(self) -> bool:
+        return self.active
+
+    def start_display(self):  # noqa: ANN201
+        self.display_started = True
+        return self.health()
+
+    def start_session(self):  # noqa: ANN201
+        self.active = True
+        return self.health()
+
+    def stop_session(self):  # noqa: ANN201
+        self.active = False
+        return self.health()
+
+    def stop_all(self) -> None:
+        self.active = False
+
+    def health(self) -> RemoteDesktopHealth:
+        return RemoteDesktopHealth(
+            state=RemoteDesktopState.SESSION_ACTIVE if self.active else RemoteDesktopState.READY,
+            display_running=self.display_started,
+            window_manager_running=self.display_started,
+            vnc_running=self.active,
+            websockify_running=self.active,
+            manual_lease_active=self.active,
+            error=None,
+        )
 
 
 def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: ANN001
@@ -129,3 +174,67 @@ def test_direct_root_mode_does_not_add_an_ingress_prefix(tmp_path) -> None:  # n
         assert response.status_code == 200
         assert 'href="/browser"' in response.text
         assert 'href="/reservations/new"' in response.text
+
+
+def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) -> None:  # noqa: ANN001
+    assets = tmp_path / "novnc"
+    assets.mkdir()
+    (assets / "vnc.html").write_text("safe noVNC fixture")
+    runtime = FakeRemoteRuntime(assets)
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+        remote_runtime=runtime,  # type: ignore[arg-type]
+    )
+    prefix = "/api/hassio_ingress/session-token"
+    headers = {"X-Hass-Source": "core.ingress", "X-Ingress-Path": prefix}
+    with TestClient(app) as client:
+        assert runtime.display_started
+        assert client.get("/browser/remote").status_code == 403
+        assert client.get("/browser/remote/novnc/vnc.html").status_code == 403
+        with pytest.raises(WebSocketDisconnect) as denied_socket:
+            with client.websocket_connect("/browser/remote/websockify"):
+                pass
+        assert denied_socket.value.code == 1008
+        denied_open = client.post(
+            "/browser/remote/open", data={"csrf_token": app.state.csrf}
+        )
+        assert denied_open.status_code == 403
+        assert (
+            client.post("/browser/remote/open", headers=headers, data={}).status_code == 403
+        )
+
+        runtime.active = True
+        remote = client.get("/browser/remote", headers=headers)
+        assert remote.status_code == 200
+        assert f'{prefix}/browser/remote/novnc/vnc.html' in remote.text
+        assert "path=../websockify" in remote.text
+        assert client.get("/browser/remote/novnc/vnc.html", headers=headers).status_code == 200
+
+
+def test_manual_lease_rejects_check_now_without_persisting_history(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    reservation = app.state.reservations.create(
+        Reservation(
+            property_name="Papaya Hostel",
+            check_in=date(2026, 9, 18),
+            check_out=date(2026, 9, 19),
+            adults=2,
+            rooms_count=1,
+            room_type="Economy Triple Room",
+            booked_total_price=Decimal("18.88"),
+            currency="EUR",
+            source_text="Sanitized fixture text",
+            extraction_confidence=1,
+            active=True,
+        )
+    )
+    assert app.state.manual_lease.acquire()
+    with TestClient(app) as client:
+        response = client.post(
+            f"/reservations/{reservation.id}/check", data={"csrf_token": app.state.csrf}
+        )
+        assert response.status_code == 409
+        assert app.state.history.latest(reservation.id) is None

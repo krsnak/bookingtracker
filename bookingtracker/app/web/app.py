@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -21,8 +21,9 @@ from app.alerts.notifications import ConsoleNotificationAdapter
 from app.alerts.service import AlertService
 from app.booking.parser import BookingRateParser
 from app.browser.executor import ThreadBoundBookingBrowser
+from app.browser.lease import ManualBrowserLease
 from app.browser.service import BookingBrowserService
-from app.config import AppPaths, BrowserSettings
+from app.config import AppPaths, BrowserSettings, RemoteDesktopSettings
 from app.db.connection import SQLiteDatabase
 from app.db.repository import (
     AlertRepository,
@@ -30,6 +31,7 @@ from app.db.repository import (
     ReservationRepository,
     ScheduleStateRepository,
 )
+from app.integrations.home_assistant.remote_desktop import RemoteDesktopError, RemoteDesktopRuntime
 from app.matching.matcher import ExactReservationMatcher
 from app.pricing.check_service import PriceCheckService
 from app.pricing.service import ComparablePriceService
@@ -38,6 +40,7 @@ from app.reservations.models import Reservation
 from app.scheduling.models import CheckTrigger
 from app.scheduling.policy import SchedulePolicy
 from app.scheduling.service import CheckRunner, ReservationScheduler
+from app.web.websocket_bridge import bridge_websocket_frames
 
 ROOT = Path(__file__).parent
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
@@ -65,12 +68,24 @@ def _request_prefix(request: Request, configured_base_path: str) -> str:
     )
 
 
+def _has_home_assistant_ingress(request: Request) -> bool:
+    raw_prefix = request.headers.get("x-ingress-path")
+    normalized = _normalized_prefix(raw_prefix)
+    return (
+        request.headers.get("x-hass-source") == "core.ingress"
+        and bool(normalized)
+        and raw_prefix is not None
+        and raw_prefix.rstrip("/") == normalized
+    )
+
+
 def create_app(
     *,
     base_path: str = "",
     paths: AppPaths | None = None,
     runner: CheckRunner | None = None,
     start_browser_on_startup: bool = True,
+    remote_runtime: RemoteDesktopRuntime | None = None,
 ) -> FastAPI:
     base_path = "/" + base_path.strip("/") if base_path.strip("/") else ""
     resolved_paths = paths or AppPaths.from_environment()
@@ -78,6 +93,8 @@ def create_app(
     reservations = ReservationRepository(database)
     history = PriceCheckRepository(database)
     alerts = AlertRepository(database)
+    lease = ManualBrowserLease()
+    remote = remote_runtime or RemoteDesktopRuntime(RemoteDesktopSettings.from_environment(), lease)
     browser = ThreadBoundBookingBrowser(
         BookingBrowserService(BrowserSettings.development(resolved_paths))
     )
@@ -93,14 +110,22 @@ def create_app(
         ScheduleStateRepository(database),
         SchedulePolicy(),
         AlertService(alerts, history, ConsoleNotificationAdapter()),
+        manual_session_active=lambda: lease.active,
     )
     scheduler = ReservationScheduler(actual_runner)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         database.migrate()
-        if start_browser_on_startup:
-            browser.start()
+        try:
+            remote.start_display()
+            if start_browser_on_startup:
+                browser_health = browser.start()
+                if remote.enabled and not browser_health.context_running:
+                    raise RuntimeError("persistent browser context failed to start")
+        except Exception:
+            remote.stop_all()
+            raise
         app.state.scheduler_running = True
         app.state.stop_event = asyncio.Event()
 
@@ -119,7 +144,9 @@ def create_app(
         app.state.stop_event.set()
         scheduler.stop()
         await task
+        remote.stop_session()
         browser.shutdown()
+        remote.stop_all()
 
     app = FastAPI(root_path=base_path, lifespan=lifespan)
     app.state.base_path = base_path
@@ -129,10 +156,27 @@ def create_app(
     app.state.browser = browser
     app.state.runner = actual_runner
     app.state.scheduler = scheduler
+    app.state.manual_lease = lease
+    app.state.remote = remote
     app.state.extractor = ReservationExtractor()
     app.state.csrf = secrets.token_urlsafe(24)
     app.state.pending: dict[str, object] = {}
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
+    if remote.enabled:
+        app.mount(
+            "/browser/remote/novnc",
+            StaticFiles(directory=str(remote.novnc_assets_dir)),
+            name="remote_novnc",
+        )
+
+    @app.middleware("http")
+    async def protect_remote_desktop(request: Request, call_next):  # noqa: ANN202
+        if remote.enabled and request.url.path.startswith("/browser/remote"):
+            if not _has_home_assistant_ingress(request):
+                return PlainTextResponse("Home Assistant Ingress required", status_code=403)
+            if request.url.path.startswith("/browser/remote/novnc") and not remote.session_active:
+                return PlainTextResponse("No manual remote session is active", status_code=409)
+        return await call_next(request)
 
     def url_for_request(request: Request, name: str, **params: str) -> str:
         return f"{_request_prefix(request, base_path)}{app.url_path_for(name, **params)}"
@@ -151,6 +195,12 @@ def create_app(
     def csrf(token: str) -> None:
         if not secrets.compare_digest(token, app.state.csrf):
             raise HTTPException(403, "Invalid form token")
+
+    def require_remote_ingress(request: Request) -> None:
+        if not remote.enabled:
+            raise HTTPException(404, "Remote desktop is unavailable in this runtime")
+        if not _has_home_assistant_ingress(request):
+            raise HTTPException(403, "Home Assistant Ingress required")
 
     @app.get("/", name="dashboard")
     def dashboard(request: Request):
@@ -298,6 +348,8 @@ def create_app(
     @app.post("/reservations/{reservation_id}/check", name="check_now")
     def check_now(request: Request, reservation_id: str, csrf_token: str = Form()):
         csrf(csrf_token)
+        if lease.active:
+            raise HTTPException(409, "Manual remote session is active; end it before checking.")
         actual_runner.run_check(UUID(reservation_id), CheckTrigger.MANUAL)
         return RedirectResponse(
             url_for_request(request, "reservation_detail", reservation_id=reservation_id),
@@ -335,23 +387,90 @@ def create_app(
 
     @app.get("/browser", name="browser_status")
     def browser_status(request: Request):
-        return render(request, "browser.html", health=browser.health())
+        return render(request, "browser.html", health=browser.health(), remote=remote.health())
 
     @app.post("/browser/smoke", name="browser_smoke")
     def browser_smoke(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
-        return render(request, "browser.html", health=browser.health(), smoke=browser.smoke_test())
+        if lease.active:
+            raise HTTPException(409, "Manual remote session is active; end it before browser actions.")
+        return render(
+            request,
+            "browser.html",
+            health=browser.health(),
+            remote=remote.health(),
+            smoke=browser.smoke_test(),
+        )
 
     @app.post("/browser/start", name="browser_start")
     def browser_start(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
+        if lease.active:
+            raise HTTPException(409, "Manual remote session is active; end it before browser actions.")
         browser.start()
         return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 
     @app.post("/browser/stop", name="browser_stop")
     def browser_stop(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
+        if lease.active:
+            raise HTTPException(409, "Manual remote session is active; end it before browser actions.")
         browser.stop()
         return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
+
+    @app.post("/browser/remote/open", name="remote_open")
+    def remote_open(request: Request, csrf_token: str = Form("")):
+        require_remote_ingress(request)
+        csrf(csrf_token)
+        if not actual_runner.begin_manual_session(lease.acquire):
+            raise HTTPException(409, "A manual remote session is already active")
+        try:
+            if not browser.health().context_running:
+                raise RemoteDesktopError("browser context is not active")
+            remote.start_session()
+        except RemoteDesktopError as error:
+            lease.release()
+            raise HTTPException(503, str(error)) from error
+        return RedirectResponse(url_for_request(request, "remote_desktop"), status_code=303)
+
+    @app.post("/browser/remote/end", name="remote_end")
+    def remote_end(request: Request, csrf_token: str = Form("")):
+        require_remote_ingress(request)
+        csrf(csrf_token)
+        try:
+            remote.stop_session()
+            browser.refresh_state()
+        finally:
+            lease.release()
+        return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
+
+    @app.get("/browser/remote", name="remote_desktop")
+    def remote_desktop(request: Request):
+        require_remote_ingress(request)
+        if not remote.session_active:
+            raise HTTPException(409, "No manual remote session is active")
+        return render(request, "remote_desktop.html", health=remote.health())
+
+    @app.websocket("/browser/remote/websockify", name="remote_websockify")
+    async def remote_websockify(websocket: WebSocket) -> None:
+        if not remote.enabled or not _has_home_assistant_ingress(websocket):
+            await websocket.close(code=1008)
+            return
+        if not remote.session_active:
+            await websocket.close(code=1013)
+            return
+        await websocket.accept()
+        try:
+            from websockets.asyncio.client import connect
+
+            async with connect(
+                f"ws://127.0.0.1:{remote.settings.websockify_port}", max_size=16 * 1024 * 1024
+            ) as upstream:
+                await bridge_websocket_frames(websocket, upstream)
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            with suppress(RuntimeError):
+                await websocket.close(code=1011)
 
     return app

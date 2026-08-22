@@ -63,11 +63,12 @@ health/watchdog endpoint. It follows the public Home Assistant add-on
 conventions exemplified by [EVCC's manifest](https://github.com/evcc-io/hassio-addon).
 No profile, database, log, token, or secret is copied into an image layer.
 
-The remote browser is a manual-recovery facility, not the normal UI. Chromium
-runs in Xvfb with a minimal window manager; VNC/noVNC stays within the add-on
-and is reached only through authenticated Home Assistant Ingress. There is no
-public VNC/noVNC port, password capture, profile export, credential automation,
-or CAPTCHA bypass.
+The remote browser is a manual-recovery facility, not the normal UI. On Home
+Assistant, the one persistent Chromium runs headful in Xvfb with Openbox so its
+same context can be viewed without relaunching it. x11vnc and websockify start
+only for a manual lease, bind only to loopback, and are bridged through FastAPI
+and authenticated Home Assistant Ingress. There is no public VNC/noVNC port,
+password capture, profile export, credential automation, or CAPTCHA bypass.
 
 Browser states are `STARTING`, `READY`, `LOGGED_OUT`, `LOGIN_REQUIRED`,
 `CAPTCHA_REQUIRED`, `ERROR`, and `STOPPED`. A crash has bounded recovery;

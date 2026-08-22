@@ -133,12 +133,14 @@ context, a loaded temporary test page, a closed temporary test page, and no
 error. Restarting the add-on logged clean application/server shutdown followed
 by a healthy new process.
 
-## Phase 9 — remote Chromium login
+## Phase 9 — remote Chromium login (implemented; production gate pending)
 
-1. Add Xvfb, minimal window manager, Chromium, VNC/noVNC/websockify process
+1. [x] Add Xvfb, minimal window manager, Chromium, VNC/noVNC/websockify process
    supervision in the add-on layer only.
-2. Provide authenticated, Ingress-relative browser access with no public VNC
-   port; validate session persistence and manual recovery on a real Pi.
+2. [x] Provide authenticated, Ingress-relative browser access with no public VNC
+   port and a manual lease that blocks automatic navigation.
+3. Validate session persistence, WebSocket forwarding, manual recovery, and
+   clean shutdown on a real Pi. This is the remaining completion gate.
 
 ## Phase 10 — Home Assistant notifications and state
 

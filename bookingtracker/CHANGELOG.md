@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+Implement Phase 9 remote/manual Booking session recovery through Home Assistant
+Ingress. Production validation on Raspberry Pi remains pending.
+
 ## 0.1.6
 
 Generate URLs from Home Assistant's request-specific Ingress prefix.

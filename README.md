@@ -69,8 +69,20 @@ SQLite, skips inactive or checked-in reservations, and serializes the shared
 browser. Login/CAPTCHA pause automated retries for seven days; transient
 infrastructure failures exponentially back off to 24 hours. Alerts are
 deduplicated and delivered through a local console adapter, leaving a persisted
-price check intact even if delivery fails. The Home Assistant add-on has no
-remote-browser UI yet; that capability is reserved for Phase 9.
+price check intact even if delivery fails. Phase 9 remote-browser recovery is
+implemented but has not completed its real Raspberry Pi / Home Assistant
+Ingress validation gate. macOS development does not enable Xvfb, VNC, or noVNC.
+
+## Remote/manual browser recovery
+
+In the Home Assistant add-on, version `0.2.0` starts one headful Chromium in a
+private Xvfb display and retains its one persistent Playwright context/profile.
+The Browser Status page can temporarily open a protected noVNC session through
+Home Assistant Ingress for manual Booking login or CAPTCHA recovery. x11vnc and
+websockify bind only to loopback and stop when the user ends the session; the
+browser, context, Xvfb, and profile remain running for later automatic checks.
+While this manual lease is active, scheduling and Check Now navigation are
+safely blocked. No credential, cookie, token, or profile data is exported.
 
 ## Intended workflow
 

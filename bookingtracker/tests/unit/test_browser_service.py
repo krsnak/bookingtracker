@@ -118,6 +118,10 @@ def test_lifecycle_and_page_recovery(tmp_path: Path) -> None:
     assert health.state is BrowserState.READY
     assert health.context_running
     assert original_page is context.pages[0]
+    assert len(playwright.chromium.calls) == 1
+
+    service.start()
+    assert len(playwright.chromium.calls) == 1
 
     original_page.closed = True
     recovered_page = service.ensure_page()

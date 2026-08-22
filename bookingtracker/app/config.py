@@ -36,12 +36,18 @@ class BrowserSettings:
     navigation_timeout_ms: int = 60_000
     executable_path: Path | None = None
     launch_args: tuple[str, ...] = ()
+    launch_environment: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def development(cls, paths: AppPaths | None = None) -> BrowserSettings:
         resolved_paths = paths or AppPaths.from_environment()
         channel = os.environ.get("BOOKINGTRACKER_BROWSER_CHANNEL", "chrome") or None
         headless = os.environ.get("BOOKINGTRACKER_BROWSER_HEADLESS", "false").lower() == "true"
+        environment = dict(os.environ)
+        if display := os.environ.get("BOOKINGTRACKER_BROWSER_DISPLAY"):
+            environment["DISPLAY"] = display
+        if xauthority := os.environ.get("BOOKINGTRACKER_XAUTHORITY"):
+            environment["XAUTHORITY"] = xauthority
         return cls(
             profile_dir=resolved_paths.booking_profile_dir,
             channel=channel,
@@ -53,5 +59,35 @@ class BrowserSettings:
                 item
                 for item in os.environ.get("BOOKINGTRACKER_BROWSER_ARGS", "").split(",")
                 if item
+            ),
+            launch_environment=tuple(environment.items()),
+        )
+
+
+@dataclass(frozen=True)
+class RemoteDesktopSettings:
+    """HA-only deployment settings for the manually opened remote display."""
+
+    enabled: bool = False
+    display: str = ":99"
+    width: int = 1280
+    height: int = 720
+    xauthority_path: Path = Path("/run/bookingtracker/Xauthority")
+    novnc_assets_dir: Path = Path("/usr/share/novnc")
+    vnc_host: str = "127.0.0.1"
+    vnc_port: int = 5900
+    websockify_port: int = 6080
+
+    @classmethod
+    def from_environment(cls) -> RemoteDesktopSettings:
+        return cls(
+            enabled=os.environ.get("BOOKINGTRACKER_REMOTE_DESKTOP_ENABLED", "false").lower()
+            == "true",
+            display=os.environ.get("BOOKINGTRACKER_BROWSER_DISPLAY", ":99"),
+            xauthority_path=Path(
+                os.environ.get("BOOKINGTRACKER_XAUTHORITY", "/run/bookingtracker/Xauthority")
+            ),
+            novnc_assets_dir=Path(
+                os.environ.get("BOOKINGTRACKER_NOVNC_ASSETS_DIR", "/usr/share/novnc")
             ),
         )

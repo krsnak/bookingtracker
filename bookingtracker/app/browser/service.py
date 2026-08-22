@@ -66,6 +66,8 @@ class BookingBrowserService:
                     kwargs["executable_path"] = str(self._settings.executable_path)
                 if self._settings.launch_args:
                     kwargs["args"] = list(self._settings.launch_args)
+                if self._settings.launch_environment:
+                    kwargs["env"] = dict(self._settings.launch_environment)
                 self._context = chromium.launch_persistent_context(**kwargs)
                 self._context_active = True
                 self._primary_page = self._recover_page()
@@ -145,10 +147,16 @@ class BookingBrowserService:
 
     def is_logged_in(self) -> AuthenticationState:
         with self._lock:
+            self.refresh_state()
+            return self._auth_state
+
+    def refresh_state(self) -> BrowserHealth:
+        """Refresh only visible page-state evidence; never reads session storage."""
+        with self._lock:
             page = self.current_page()
             if page:
                 self._refresh_page_state(page)
-            return self._auth_state
+            return self.health()
 
     def smoke_test(self) -> dict[str, object]:
         with self._lock:
