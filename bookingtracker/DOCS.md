@@ -1,7 +1,7 @@
 # BookingTracker
 
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
-Ingress serves the UI; no ports are published. Version `0.2.1` implements Phase
+Ingress serves the UI; no ports are published. Version `0.2.2` implements Phase
 9 remote recovery but has not completed its real-Pi production gate. On Home
 Assistant, Chromium starts headful in private Xvfb; noVNC is available only
 through authenticated Ingress and only while a manual session is active.

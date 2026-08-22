@@ -4,7 +4,7 @@ import re
 from datetime import date
 from decimal import Decimal
 from html import unescape
-from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
@@ -214,13 +214,31 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
         parsed_iframe = urlsplit(iframe_source)
         assert parsed_iframe.path == f"{prefix}/browser/remote/novnc/vnc.html"
         assert parsed_iframe.path.count(prefix) == 1
-        assert ".." not in iframe_source
-        websocket_path = parse_qs(parsed_iframe.query)["path"][0]
-        assert websocket_path == "websockify"
-        assert not websocket_path.startswith("/")
-        assert urljoin(iframe_source, websocket_path) == (
-            f"{prefix}/browser/remote/novnc/websockify"
+        assert parsed_iframe.query == ""
+        assert iframe_source.split("#", maxsplit=1)[0] == (
+            f"{prefix}/browser/remote/novnc/vnc.html"
         )
+        assert ".." not in iframe_source
+        websocket_path = parse_qs(parsed_iframe.fragment)["path"][0]
+        assert websocket_path == f"{prefix.lstrip('/')}/browser/remote/novnc/websockify"
+        assert websocket_path.count(prefix.lstrip("/")) == 1
+        assert not websocket_path.startswith("/")
+        simulated_url = "wss://ha.local/" + websocket_path
+        assert simulated_url == (
+            f"wss://ha.local{prefix}/browser/remote/novnc/websockify"
+        )
+        routes = app.router.routes
+        websocket_index = next(
+            index
+            for index, route in enumerate(routes)
+            if getattr(route, "path", None) == "/browser/remote/novnc/websockify"
+        )
+        static_index = next(
+            index
+            for index, route in enumerate(routes)
+            if getattr(route, "path", None) == "/browser/remote/novnc"
+        )
+        assert websocket_index < static_index
         assert client.get("/browser/remote/novnc/vnc.html", headers=headers).status_code == 200
 
 

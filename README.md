@@ -75,7 +75,7 @@ Ingress validation gate. macOS development does not enable Xvfb, VNC, or noVNC.
 
 ## Remote/manual browser recovery
 
-In the Home Assistant add-on, version `0.2.1` starts one headful Chromium in a
+In the Home Assistant add-on, version `0.2.2` starts one headful Chromium in a
 private Xvfb display and retains its one persistent Playwright context/profile.
 The Browser Status page can temporarily open a protected noVNC session through
 Home Assistant Ingress for manual Booking login or CAPTCHA recovery. x11vnc and

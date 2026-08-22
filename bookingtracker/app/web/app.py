@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -443,7 +444,22 @@ def create_app(
         require_remote_ingress(request)
         if not remote.session_active:
             raise HTTPException(409, "No manual remote session is active")
-        return render(request, "remote_desktop.html", health=remote.health())
+        websocket_path = url_for_request(request, "remote_websockify").lstrip("/")
+        novnc_fragment = urlencode(
+            {
+                "autoconnect": "1",
+                "reconnect": "0",
+                "resize": "scale",
+                "shared": "1",
+                "path": websocket_path,
+            }
+        )
+        return render(
+            request,
+            "remote_desktop.html",
+            health=remote.health(),
+            novnc_fragment=novnc_fragment,
+        )
 
     @app.websocket("/browser/remote/novnc/websockify", name="remote_websockify")
     async def remote_websockify(websocket: WebSocket) -> None:

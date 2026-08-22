@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+Pass the full dynamic Ingress WebSocket path in noVNC 1.3's client-side URL
+fragment so Bookworm noVNC does not escape the Ingress prefix.
+
 ## 0.2.1
 
 Keep noVNC's WebSocket endpoint below its asset path so Home Assistant Ingress
