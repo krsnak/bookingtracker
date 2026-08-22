@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+Use POSIX `sh` startup options on Debian slim.
+
 ## 0.1.2
 
 Use Debian 12 glibc ARM64 runtime so Playwright's manylinux ARM64 wheel can install.

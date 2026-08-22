@@ -11,6 +11,12 @@ def test_addon_build_context_is_self_contained() -> None:
     assert (ROOT / "pyproject.toml").is_file()
     assert (ROOT / "app").is_dir()
     assert (ROOT / "scripts" / "container_browser_smoke.py").is_file()
+    run_script = (ROOT / "run.sh").read_text()
+    assert run_script.startswith("#!/bin/sh\n")
+    assert "set -eu" in run_script
+    assert "pipefail" not in run_script
+    assert "--reload" not in run_script
+    assert "exec /opt/venv/bin/python -m uvicorn" in run_script
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert "debian:12-slim" in dockerfile
     assert "apt-get install" in dockerfile and "chromium" in dockerfile

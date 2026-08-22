@@ -1,5 +1,5 @@
 #!/bin/sh
-set -euo pipefail
+set -eu
 export BOOKINGTRACKER_DATA_DIR=/data
 export BOOKINGTRACKER_LOGS_DIR=/data/logs
 export BOOKINGTRACKER_BROWSER_CHANNEL=
