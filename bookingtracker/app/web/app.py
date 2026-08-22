@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import secrets
 from contextlib import asynccontextmanager, suppress
 from datetime import date
@@ -45,6 +46,11 @@ from app.web.websocket_bridge import bridge_websocket_frames
 
 ROOT = Path(__file__).parent
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
+
+
+def static_asset_revision(path: Path) -> str:
+    """Return a short deterministic content revision without request metadata."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
 def _normalized_prefix(value: str | None) -> str:
@@ -162,6 +168,7 @@ def create_app(
     app.state.extractor = ReservationExtractor()
     app.state.csrf = secrets.token_urlsafe(24)
     app.state.pending: dict[str, object] = {}
+    app.state.static_css_revision = static_asset_revision(ROOT / "static" / "app.css")
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
     @app.middleware("http")
@@ -177,11 +184,18 @@ def create_app(
         return f"{_request_prefix(request, base_path)}{app.url_path_for(name, **params)}"
 
     def render(request: Request, name: str, **context: object):
+        def static_url(path: str) -> str:
+            asset_url = url_for_request(request, "static", path=path)
+            if path == "app.css":
+                return f"{asset_url}?v={app.state.static_css_revision}"
+            return asset_url
+
         return templates.TemplateResponse(
             request,
             name,
             {
                 "url": lambda route_name, **params: url_for_request(request, route_name, **params),
+                "static_url": static_url,
                 "csrf": app.state.csrf,
                 **context,
             },

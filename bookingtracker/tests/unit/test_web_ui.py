@@ -11,7 +11,7 @@ import pytest
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
 from app.reservations.models import Reservation
-from app.web.app import create_app
+from app.web.app import create_app, static_asset_revision
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -84,6 +84,8 @@ def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: A
         assert extracted.status_code == 200
         assert "Review reservation" in extracted.text
         assert "/bookingtracker-test/reservations/save" in extracted.text
+        css_link = re.search(r'<link[^>]+href="([^"]+)"', dashboard.text)[1]
+        assert css_link == f"/bookingtracker-test/static/app.css?v={app.state.static_css_revision}"
         assert client.get("/bookingtracker-test/static/app.css").status_code == 200
 
 
@@ -120,6 +122,9 @@ def test_home_assistant_ingress_prefix_applies_to_links_forms_redirects_and_stat
     )
     prefix = "/api/hassio_ingress/real-session-token"
     headers = {"X-Ingress-Path": prefix, "X-Forwarded-Host": "ha.local"}
+    expected_revision = static_asset_revision(
+        Path(__file__).parents[2] / "app" / "web" / "static" / "app.css"
+    )
     reservation = app.state.reservations.create(
         Reservation(
             property_name="Papaya Hostel",
@@ -139,8 +144,15 @@ def test_home_assistant_ingress_prefix_applies_to_links_forms_redirects_and_stat
     with TestClient(app) as client:
         dashboard = client.get("/", headers=headers)
         assert dashboard.status_code == 200
-        for target in ("/reservations/new", "/alerts", "/browser", "/static/app.css"):
+        for target in ("/reservations/new", "/alerts", "/browser"):
             assert f'"{prefix}{target}"' in dashboard.text
+        css_link = re.search(r'<link[^>]+href="([^"]+)"', dashboard.text)[1]
+        parsed_css = urlsplit(css_link)
+        assert parsed_css.path == f"{prefix}/static/app.css"
+        assert parsed_css.path.count(prefix) == 1
+        assert parse_qs(parsed_css.query) == {"v": [expected_revision]}
+        assert app.state.static_css_revision == expected_revision
+        assert "real-session-token" not in app.state.static_css_revision
         assert 'href="/browser"' not in dashboard.text
         assert "http://localhost/browser" not in dashboard.text
         assert client.get("/static/app.css", headers=headers).status_code == 200
@@ -178,6 +190,18 @@ def test_direct_root_mode_does_not_add_an_ingress_prefix(tmp_path) -> None:  # n
         assert response.status_code == 200
         assert 'href="/browser"' in response.text
         assert 'href="/reservations/new"' in response.text
+        assert f'href="/static/app.css?v={app.state.static_css_revision}"' in response.text
+
+
+def test_static_asset_revision_changes_with_content(tmp_path) -> None:  # noqa: ANN001
+    stylesheet = tmp_path / "app.css"
+    stylesheet.write_text("body{color:#000}")
+    first = static_asset_revision(stylesheet)
+    stylesheet.write_text("body{color:#111}")
+    second = static_asset_revision(stylesheet)
+
+    assert len(first) == 12
+    assert first != second
 
 
 def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) -> None:  # noqa: ANN001

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+Cache-bust BookingTracker CSS with a deterministic content revision.
+
 ## 0.2.3
 
 Make the Ingress noVNC frame responsive at the Xvfb 16:9 aspect ratio.
