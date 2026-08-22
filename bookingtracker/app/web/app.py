@@ -43,6 +43,28 @@ ROOT = Path(__file__).parent
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
 
+def _normalized_prefix(value: str | None) -> str:
+    """Return a safe proxy mount prefix, or an empty string for direct access."""
+    if not value:
+        return ""
+    prefix = value.strip()
+    if not prefix.startswith("/") or prefix.startswith("//"):
+        return ""
+    if any(character in prefix for character in "\r\n?#"):
+        return ""
+    return "/" + prefix.strip("/") if prefix.strip("/") else ""
+
+
+def _request_prefix(request: Request, configured_base_path: str) -> str:
+    """Prefer Home Assistant's per-session ingress prefix over static configuration."""
+    return _normalized_prefix(
+        request.headers.get("x-ingress-path")
+        or request.headers.get("x-forwarded-prefix")
+        or request.scope.get("root_path")
+        or configured_base_path
+    )
+
+
 def create_app(
     *,
     base_path: str = "",
@@ -112,12 +134,18 @@ def create_app(
     app.state.pending: dict[str, object] = {}
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
-    def url(name: str, **params: str) -> str:
-        return f"{base_path}{app.url_path_for(name, **params)}"
+    def url_for_request(request: Request, name: str, **params: str) -> str:
+        return f"{_request_prefix(request, base_path)}{app.url_path_for(name, **params)}"
 
     def render(request: Request, name: str, **context: object):
         return templates.TemplateResponse(
-            request, name, {"url": url, "csrf": app.state.csrf, **context}
+            request,
+            name,
+            {
+                "url": lambda route_name, **params: url_for_request(request, route_name, **params),
+                "csrf": app.state.csrf,
+                **context,
+            },
         )
 
     def csrf(token: str) -> None:
@@ -180,7 +208,8 @@ def create_app(
             )
         saved = reservations.create(Reservation(**candidate.model_dump(), active=True))
         return RedirectResponse(
-            url("reservation_detail", reservation_id=str(saved.id)), status_code=303
+            url_for_request(request, "reservation_detail", reservation_id=str(saved.id)),
+            status_code=303,
         )
 
     @app.get("/reservations/{reservation_id}", name="reservation_detail")
@@ -262,26 +291,29 @@ def create_app(
             return render(request, "edit.html", reservation=item, error=str(error))
         reservations.update(candidate)
         return RedirectResponse(
-            url("reservation_detail", reservation_id=reservation_id), status_code=303
+            url_for_request(request, "reservation_detail", reservation_id=reservation_id),
+            status_code=303,
         )
 
     @app.post("/reservations/{reservation_id}/check", name="check_now")
-    def check_now(reservation_id: str, csrf_token: str = Form()):
+    def check_now(request: Request, reservation_id: str, csrf_token: str = Form()):
         csrf(csrf_token)
         actual_runner.run_check(UUID(reservation_id), CheckTrigger.MANUAL)
         return RedirectResponse(
-            url("reservation_detail", reservation_id=reservation_id), status_code=303
+            url_for_request(request, "reservation_detail", reservation_id=reservation_id),
+            status_code=303,
         )
 
     @app.post("/reservations/{reservation_id}/toggle", name="toggle_reservation")
-    def toggle_reservation(reservation_id: str, csrf_token: str = Form()):
+    def toggle_reservation(request: Request, reservation_id: str, csrf_token: str = Form()):
         csrf(csrf_token)
         item = reservations.get(UUID(reservation_id))
         if item is None:
             raise HTTPException(404, "Reservation not found")
         reservations.update(item.model_copy(update={"active": not item.active}))
         return RedirectResponse(
-            url("reservation_detail", reservation_id=reservation_id), status_code=303
+            url_for_request(request, "reservation_detail", reservation_id=reservation_id),
+            status_code=303,
         )
 
     @app.get("/alerts", name="alerts_view")
@@ -294,12 +326,12 @@ def create_app(
         return render(request, "alerts.html", alerts=all_alerts)
 
     @app.post("/alerts/{alert_id}/acknowledge", name="ack_alert")
-    def ack_alert(alert_id: str, csrf_token: str = Form()):
+    def ack_alert(request: Request, alert_id: str, csrf_token: str = Form()):
         csrf(csrf_token)
         alerts.acknowledge(
             UUID(alert_id), __import__("datetime").datetime.now(__import__("datetime").UTC)
         )
-        return RedirectResponse(url("alerts_view"), status_code=303)
+        return RedirectResponse(url_for_request(request, "alerts_view"), status_code=303)
 
     @app.get("/browser", name="browser_status")
     def browser_status(request: Request):
@@ -311,15 +343,15 @@ def create_app(
         return render(request, "browser.html", health=browser.health(), smoke=browser.smoke_test())
 
     @app.post("/browser/start", name="browser_start")
-    def browser_start(csrf_token: str = Form()):
+    def browser_start(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
         browser.start()
-        return RedirectResponse(url("browser_status"), status_code=303)
+        return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 
     @app.post("/browser/stop", name="browser_stop")
-    def browser_stop(csrf_token: str = Form()):
+    def browser_stop(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
         browser.stop()
-        return RedirectResponse(url("browser_status"), status_code=303)
+        return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 
     return app

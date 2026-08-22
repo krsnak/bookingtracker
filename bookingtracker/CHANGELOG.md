@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+Generate URLs from Home Assistant's request-specific Ingress prefix.
+
 ## 0.1.5
 
 Add an Ingress-safe internal Chromium smoke action.
