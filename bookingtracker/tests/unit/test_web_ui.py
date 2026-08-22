@@ -4,6 +4,7 @@ import re
 from datetime import date
 from decimal import Decimal
 from html import unescape
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -210,6 +211,8 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
         runtime.active = True
         remote = client.get("/browser/remote", headers=headers)
         assert remote.status_code == 200
+        assert 'class="remote-desktop-frame"' in remote.text
+        assert "<iframe" in remote.text and "style=" not in remote.text
         iframe_source = unescape(re.search(r'<iframe[^>]+src="([^"]+)"', remote.text)[1])
         parsed_iframe = urlsplit(iframe_source)
         assert parsed_iframe.path == f"{prefix}/browser/remote/novnc/vnc.html"
@@ -240,6 +243,11 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
         )
         assert websocket_index < static_index
         assert client.get("/browser/remote/novnc/vnc.html", headers=headers).status_code == 200
+    stylesheet = (Path(__file__).parents[2] / "app" / "web" / "static" / "app.css").read_text()
+    assert ".remote-desktop-frame{" in stylesheet
+    assert "width:100%" in stylesheet
+    assert "max-width:1280px" in stylesheet
+    assert "aspect-ratio:16/9" in stylesheet
 
 
 def test_manual_lease_rejects_check_now_without_persisting_history(tmp_path) -> None:  # noqa: ANN001

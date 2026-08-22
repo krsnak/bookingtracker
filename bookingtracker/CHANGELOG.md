@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+Make the Ingress noVNC frame responsive at the Xvfb 16:9 aspect ratio.
+
 ## 0.2.2
 
 Pass the full dynamic Ingress WebSocket path in noVNC 1.3's client-side URL
