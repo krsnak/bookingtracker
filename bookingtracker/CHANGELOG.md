@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+Keep noVNC's WebSocket endpoint below its asset path so Home Assistant Ingress
+never receives a parent-path traversal segment.
+
 ## 0.2.0
 
 Implement Phase 9 remote/manual Booking session recovery through Home Assistant

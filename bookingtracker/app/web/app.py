@@ -162,12 +162,6 @@ def create_app(
     app.state.csrf = secrets.token_urlsafe(24)
     app.state.pending: dict[str, object] = {}
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
-    if remote.enabled:
-        app.mount(
-            "/browser/remote/novnc",
-            StaticFiles(directory=str(remote.novnc_assets_dir)),
-            name="remote_novnc",
-        )
 
     @app.middleware("http")
     async def protect_remote_desktop(request: Request, call_next):  # noqa: ANN202
@@ -451,7 +445,7 @@ def create_app(
             raise HTTPException(409, "No manual remote session is active")
         return render(request, "remote_desktop.html", health=remote.health())
 
-    @app.websocket("/browser/remote/websockify", name="remote_websockify")
+    @app.websocket("/browser/remote/novnc/websockify", name="remote_websockify")
     async def remote_websockify(websocket: WebSocket) -> None:
         if not remote.enabled or not _has_home_assistant_ingress(websocket):
             await websocket.close(code=1008)
@@ -472,5 +466,14 @@ def create_app(
         except Exception:
             with suppress(RuntimeError):
                 await websocket.close(code=1011)
+
+    # Register this mount after the WebSocket child route so Starlette does not
+    # let StaticFiles consume the upgrade request.
+    if remote.enabled:
+        app.mount(
+            "/browser/remote/novnc",
+            StaticFiles(directory=str(remote.novnc_assets_dir)),
+            name="remote_novnc",
+        )
 
     return app

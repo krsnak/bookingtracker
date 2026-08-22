@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
+from html import unescape
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import pytest
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
@@ -193,7 +196,7 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
         assert client.get("/browser/remote").status_code == 403
         assert client.get("/browser/remote/novnc/vnc.html").status_code == 403
         with pytest.raises(WebSocketDisconnect) as denied_socket:
-            with client.websocket_connect("/browser/remote/websockify"):
+            with client.websocket_connect("/browser/remote/novnc/websockify"):
                 pass
         assert denied_socket.value.code == 1008
         denied_open = client.post(
@@ -207,8 +210,17 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
         runtime.active = True
         remote = client.get("/browser/remote", headers=headers)
         assert remote.status_code == 200
-        assert f'{prefix}/browser/remote/novnc/vnc.html' in remote.text
-        assert "path=../websockify" in remote.text
+        iframe_source = unescape(re.search(r'<iframe[^>]+src="([^"]+)"', remote.text)[1])
+        parsed_iframe = urlsplit(iframe_source)
+        assert parsed_iframe.path == f"{prefix}/browser/remote/novnc/vnc.html"
+        assert parsed_iframe.path.count(prefix) == 1
+        assert ".." not in iframe_source
+        websocket_path = parse_qs(parsed_iframe.query)["path"][0]
+        assert websocket_path == "websockify"
+        assert not websocket_path.startswith("/")
+        assert urljoin(iframe_source, websocket_path) == (
+            f"{prefix}/browser/remote/novnc/websockify"
+        )
         assert client.get("/browser/remote/novnc/vnc.html", headers=headers).status_code == 200
 
 
