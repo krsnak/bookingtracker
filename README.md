@@ -22,16 +22,30 @@ Production state persists in add-on `/data`:
 - `/data/booking_profile/`
 - `/data/logs/`
 
-Phases 1–6 (reservation import, persistent browser service, fixture-backed
-rate parsing, exact reservation matching, SQLite history, and local scheduling
-with alerts) are complete.
+Phases 1–8 are complete: reservation import, persistent browser service,
+fixture-backed rate parsing, exact reservation matching, SQLite history,
+local scheduling with alerts, the local web UI, and Home Assistant add-on
+packaging.
 The local SQLite layer uses migrations, foreign keys, decimal-text money, and
 immutable price-check/offer snapshots. A comparable price requires an accepted
 match, identical currency, and explicit current taxes/fees inclusion;
-`delta = current - booked`, so negative is cheaper. UI, scheduling, alerts,
-and Home Assistant work have not started. The complete
+`delta = current - booked`, so negative is cheaper. The complete
 implementation sequence is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 and the deployment/design details are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Home Assistant production verification
+
+Add-on version `0.1.6` was verified on a Raspberry Pi 4 running Home Assistant
+OS (aarch64). The Ingress dashboard, `static/app.css`, and Browser page each
+returned HTTP 200; Browser navigation remained within the session-specific
+Ingress path. Browser Status reported `ready`.
+
+The protected internal browser smoke action verified the existing persistent
+Playwright context with `success: true`, `architecture: aarch64`, Chromium at
+`/usr/bin/chromium`, an active context, a loaded and closed temporary page, and
+no error. An add-on restart shut down the application/server process cleanly
+and started a healthy replacement process. Phase 9 is the next planned phase;
+it has not started.
 
 ## Local web UI
 
@@ -46,16 +60,17 @@ Open `http://127.0.0.1:8000`. Add a reservation by pasting a confirmation,
 review and correct known fields, and supply the Booking URL before checking.
 The Browser page can start the existing headed persistent-profile workflow for
 manual login; credentials are never entered into BookingTracker. The app uses
-a configurable base path (for example `/bookingtracker-test`) for all route,
-form, redirect, and static-asset URLs, preparing it for future Ingress use.
+a configurable base path for direct development and derives its per-request
+Home Assistant prefix from `X-Ingress-Path` for route, form, redirect, and
+static-asset URLs.
 
 The scheduler defaults to three checks per day, persists due/backoff state in
 SQLite, skips inactive or checked-in reservations, and serializes the shared
 browser. Login/CAPTCHA pause automated retries for seven days; transient
 infrastructure failures exponentially back off to 24 hours. Alerts are
 deduplicated and delivered through a local console adapter, leaving a persisted
-price check intact even if delivery fails. There is no UI, Home Assistant
-integration, or remote-browser packaging yet.
+price check intact even if delivery fails. The Home Assistant add-on has no
+remote-browser UI yet; that capability is reserved for Phase 9.
 
 ## Intended workflow
 

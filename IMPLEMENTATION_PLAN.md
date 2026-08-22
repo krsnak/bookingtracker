@@ -2,11 +2,9 @@
 
 ## Status
 
-Phase 0 is complete: the repository, public TripWatch reference, public EVCC
-Home Assistant add-on conventions, and public Xvfb/VNC/noVNC patterns were
-audited. The architecture now supports macOS development and Raspberry Pi 4
-aarch64 Home Assistant production. No product implementation has started; the
-existing POC is unchanged.
+Phases 0–8 are complete. The architecture supports macOS development and
+Raspberry Pi 4 aarch64 Home Assistant production. Phase 9 is next and has not
+started.
 
 ## Phase 0 — foundation audit (complete)
 
@@ -119,12 +117,21 @@ rejected alternatives create none.
 3. [x] Add lifecycle-owned scheduler polling and test non-root generated URLs,
    forms, redirects, and static assets.
 
-## Phase 8 — Home Assistant add-on packaging (packaging fix applied; runtime gate pending)
+## Phase 8 — Home Assistant add-on packaging (complete)
 
 1. [x] Add `repository.yaml`, self-contained `bookingtracker/` add-on manifest, Dockerfile, run script,
    documentation, aarch64 support, `/data` configuration, and health endpoint.
-2. Validate startup, migrations, persistence, clean shutdown, and no runtime
+2. [x] Validate startup, migrations, persistence, clean shutdown, and no runtime
    profile/state in image layers using an arm64 image build.
+
+Production validation completed on Raspberry Pi 4 / Home Assistant OS with
+add-on version `0.1.6`: the Ingress dashboard, `/static/app.css`, and Browser
+page returned HTTP 200; Browser navigation stayed under the dynamic Ingress
+prefix; and Browser Status was `ready`. The protected internal ARM64 smoke
+action returned success with `aarch64`, `/usr/bin/chromium`, an active persistent
+context, a loaded temporary test page, a closed temporary test page, and no
+error. Restarting the add-on logged clean application/server shutdown followed
+by a healthy new process.
 
 ## Phase 9 — remote Chromium login
 
