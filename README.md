@@ -35,10 +35,11 @@ and the deployment/design details are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Local web UI
 
-Run the local interface with:
+The self-contained application/add-on build context is `bookingtracker/`. Run the local interface with:
 
 ```bash
-.venv/bin/uvicorn app.web.main:app --reload --port 8000
+cd bookingtracker
+../.venv/bin/uvicorn app.web.main:app --host 127.0.0.1 --port 8000
 ```
 
 Open `http://127.0.0.1:8000`. Add a reservation by pasting a confirmation,

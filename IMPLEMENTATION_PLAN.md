@@ -119,9 +119,9 @@ rejected alternatives create none.
 3. [x] Add lifecycle-owned scheduler polling and test non-root generated URLs,
    forms, redirects, and static assets.
 
-## Phase 8 — Home Assistant add-on packaging
+## Phase 8 — Home Assistant add-on packaging (packaging fix applied; runtime gate pending)
 
-1. Add `repository.yaml`, add-on manifest, Dockerfile, run script,
+1. [x] Add `repository.yaml`, self-contained `bookingtracker/` add-on manifest, Dockerfile, run script,
    documentation, aarch64 support, `/data` configuration, and health endpoint.
 2. Validate startup, migrations, persistence, clean shutdown, and no runtime
    profile/state in image layers using an arm64 image build.

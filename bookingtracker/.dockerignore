@@ -1,0 +1,17 @@
+data/
+logs/
+.venv/
+.env*
+*.db
+*.db-*
+*.sqlite*
+*Cookies*
+*Session*
+*Singleton*
+*Login Data*
+*Local State*
+*Secure Preferences*
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
