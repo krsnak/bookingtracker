@@ -305,6 +305,11 @@ def create_app(
     def browser_status(request: Request):
         return render(request, "browser.html", health=browser.health())
 
+    @app.post("/browser/smoke", name="browser_smoke")
+    def browser_smoke(request: Request, csrf_token: str = Form()):
+        csrf(csrf_token)
+        return render(request, "browser.html", health=browser.health(), smoke=browser.smoke_test())
+
     @app.post("/browser/start", name="browser_start")
     def browser_start(csrf_token: str = Form()):
         csrf(csrf_token)

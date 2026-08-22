@@ -42,6 +42,9 @@ class ThreadBoundBookingBrowser:
 
         return self._executor.submit(content).result()
 
+    def smoke_test(self):  # noqa: ANN201
+        return self._call("smoke_test")
+
     def shutdown(self) -> None:
         self.stop()
         self._executor.shutdown(wait=True)

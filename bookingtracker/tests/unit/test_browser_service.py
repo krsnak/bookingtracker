@@ -51,7 +51,15 @@ class FakePage:
             self.active_navigations -= 1
 
     def title(self) -> str:
-        return "Booking test page"
+        return (
+            "BookingTracker browser smoke" if self.url.startswith("data:") else "Booking test page"
+        )
+
+    def evaluate(self, _: str) -> str:
+        return "Fake Chromium"
+
+    def close(self) -> None:
+        self.closed = True
 
     def is_closed(self) -> bool:
         return self.closed
@@ -168,6 +176,17 @@ def test_browser_start_failure_is_reported(tmp_path: Path) -> None:
     assert health.state is BrowserState.ERROR
     assert not health.context_running
     assert "browser start failed" in (health.last_error or "")
+
+
+def test_smoke_test_closes_only_disposable_page(tmp_path: Path) -> None:
+    service, context, _ = build_service(tmp_path)
+    service.start()
+    main_page = context.pages[0]
+    result = service.smoke_test()
+    assert result["success"] is True
+    assert result["test_page_closed"] is True
+    assert main_page.closed is False
+    assert context.closed is False
 
 
 def test_error_state_does_not_retry_start_during_navigation(tmp_path: Path) -> None:

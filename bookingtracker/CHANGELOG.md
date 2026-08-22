@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+Add an Ingress-safe internal Chromium smoke action.
+
 ## 0.1.4
 
 Include the browser session detection module in the self-contained add-on source tree.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from datetime import datetime
+import platform
 from threading import RLock
 from typing import Callable
 
@@ -148,6 +149,38 @@ class BookingBrowserService:
             if page:
                 self._refresh_page_state(page)
             return self._auth_state
+
+    def smoke_test(self) -> dict[str, object]:
+        with self._lock:
+            result: dict[str, object] = {
+                "success": False,
+                "architecture": platform.machine(),
+                "chromium_executable": str(self._settings.executable_path)
+                if self._settings.executable_path
+                else None,
+                "persistent_context_active": self._context_is_alive(),
+                "test_page_loaded": False,
+                "test_page_closed": False,
+                "error": None,
+            }
+            if not self._context_is_alive():
+                result["error"] = "browser context is not active"
+                return result
+            page = None
+            try:
+                page = self._context.new_page()  # type: ignore[union-attr]
+                page.goto("data:text/html,<title>BookingTracker browser smoke</title>")
+                result["browser_version"] = page.evaluate("navigator.userAgent")
+                result["test_page_loaded"] = page.title() == "BookingTracker browser smoke"
+                result["success"] = bool(result["test_page_loaded"])
+            except (AttributeError, RuntimeError, PlaywrightError) as error:
+                result["error"] = str(error).split("\n", 1)[0]
+            finally:
+                if page is not None:
+                    with suppress(AttributeError, RuntimeError):
+                        page.close()
+                        result["test_page_closed"] = True
+            return result
 
     def requires_manual_action(self) -> bool:
         return self._state in {BrowserState.LOGIN_REQUIRED, BrowserState.CAPTCHA_REQUIRED}
