@@ -35,6 +35,7 @@ class BrowserSettings:
     headless: bool = False
     navigation_timeout_ms: int = 60_000
     executable_path: Path | None = None
+    launch_args: tuple[str, ...] = ()
 
     @classmethod
     def development(cls, paths: AppPaths | None = None) -> BrowserSettings:
@@ -48,4 +49,9 @@ class BrowserSettings:
             executable_path=Path(os.environ["BOOKINGTRACKER_BROWSER_EXECUTABLE"])
             if os.environ.get("BOOKINGTRACKER_BROWSER_EXECUTABLE")
             else None,
+            launch_args=tuple(
+                item
+                for item in os.environ.get("BOOKINGTRACKER_BROWSER_ARGS", "").split(",")
+                if item
+            ),
         )

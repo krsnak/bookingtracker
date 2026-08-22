@@ -63,6 +63,8 @@ class BookingBrowserService:
                     kwargs["channel"] = self._settings.channel
                 if self._settings.executable_path:
                     kwargs["executable_path"] = str(self._settings.executable_path)
+                if self._settings.launch_args:
+                    kwargs["args"] = list(self._settings.launch_args)
                 self._context = chromium.launch_persistent_context(**kwargs)
                 self._context_active = True
                 self._primary_page = self._recover_page()
