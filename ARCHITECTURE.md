@@ -1,0 +1,390 @@
+# BookingTracker architecture
+
+BookingTracker is a local, single-user tool that tracks the price of an
+existing Booking.com reservation. It is developed on macOS and deployed as a
+Home Assistant add-on on a Raspberry Pi 4 (aarch64). Its governing invariant is
+that price comparison is performed only after an available offer has been shown
+to be equivalent to, or an explicitly-labelled upgrade over, the booked rate.
+
+## Audit of the proof of concept
+
+The current repository contains two experimental Playwright scripts:
+
+| File | Decision | Reason |
+| --- | --- | --- |
+| `app/browser/browser_service.py` | Refactor | It proves persistent Chrome-profile launch, reuse of a logged-in page, and direct Booking URL navigation. Its REPL, globals, console output, arbitrary waits, and room-row/price assumptions are disposable. |
+| `app/browser/login_test.py` | Retire after Phase 2 | It is a useful manual smoke-test reference, but duplicates browser lifecycle logic and parses a room row as one offer. |
+
+No application domain, persistence, test, package, lint, or UI structure exists yet. The `data/booking_profile` directory is user authentication state and must never be inspected for values, logged, or committed.
+
+## Design principles
+
+- Local-first: SQLite and a local FastAPI application; no cloud service,
+  Supabase, email ingestion, credential storage, or automatic actions.
+- Deterministic first: dates, money, occupancy, cancellation deadlines,
+  navigation, matching, and arithmetic are code, not LLM decisions.
+- Evidence first: every scrape stores the source URL, row text, parser
+  warnings, and a rate snapshot needed to explain a decision.
+- Safety first: a lower price is irrelevant until exact-match constraints
+  pass. Ambiguous upgrades are presented, not silently treated as matches.
+- One browser context: Chrome launches once with `data/booking_profile` and
+  stays alive for manual login and serialized checks.
+- Platform boundary: matching, parsing, scheduling policy, and persistence
+  contracts have no Home Assistant, Docker, VNC, or filesystem assumptions.
+- Ingress safety: generated links, redirects, static assets, forms, API calls,
+  and remote-browser routes are relative to the mounted base path, never `/`.
+
+## Home Assistant production architecture
+
+Production runs one add-on container with a FastAPI server-rendered UI,
+SQLite, one scheduler, and one managed Chromium context. Runtime state is
+outside the image in `/data/bookingtracker.db`, `/data/booking_profile/`, and
+`/data/logs/`. `AppPaths` is the single path/configuration abstraction: local
+development uses checkout-relative `data/` and `logs/`; the add-on sets its
+data root to `/data`.
+
+```mermaid
+flowchart LR
+  A["HA sidebar / authenticated Ingress"] --> B["FastAPI server-rendered UI"]
+  B --> C["Platform-independent application services"]
+  C --> D[("SQLite in /data")]
+  C --> E["Persistent Playwright browser service"]
+  E --> F["aarch64 Chromium"]
+  F --> G["Booking.com"]
+  H["Manual login / CAPTCHA only"] --> I["Ingress-relative noVNC"]
+  I --> J["Xvfb + window manager + VNC"]
+  J --> F
+  C --> K["HA state and notification adapters"]
+```
+
+The add-on manifest will declare `aarch64`, `startup: application`, `boot:
+auto`, `ingress: true`, an explicit ingress port, and a localhost
+health/watchdog endpoint. It follows the public Home Assistant add-on
+conventions exemplified by [EVCC's manifest](https://github.com/evcc-io/hassio-addon).
+No profile, database, log, token, or secret is copied into an image layer.
+
+The remote browser is a manual-recovery facility, not the normal UI. Chromium
+runs in Xvfb with a minimal window manager; VNC/noVNC stays within the add-on
+and is reached only through authenticated Home Assistant Ingress. There is no
+public VNC/noVNC port, password capture, profile export, credential automation,
+or CAPTCHA bypass.
+
+Browser states are `STARTING`, `READY`, `LOGGED_OUT`, `LOGIN_REQUIRED`,
+`CAPTCHA_REQUIRED`, `ERROR`, and `STOPPED`. A crash has bounded recovery;
+repeated failures become `ERROR`, not an infinite loop. Checks remain
+serialized through one browser/context to protect Pi memory.
+
+## Proposed project tree
+
+```text
+BookingTracker/
+├── app/
+│   ├── api/                 # FastAPI routes and server-rendered pages
+│   ├── booking/             # Booking adapter, selectors, parser, models
+│   ├── browser/             # persistent Chrome service and navigation
+│   ├── db/                  # SQLite connection, migrations, repositories
+│   ├── matching/            # hard constraints, scoring, explanations
+│   ├── notifications/       # local notifier abstraction
+│   ├── pricing/             # comparable-total and price-check service
+│   ├── reservations/        # typed models, import, validation
+│   ├── scheduler/           # serialized conservative check loop
+│   ├── ui/                  # templates and static assets
+│   ├── integrations/
+│   │   └── home_assistant/  # HA state/notification adapter boundary
+│   └── config.py            # AppPaths and platform-neutral configuration
+├── ha-addon/                # Phase 8+ packaging only
+│   ├── config.yaml
+│   ├── Dockerfile
+│   ├── run.sh
+│   ├── DOCS.md
+│   ├── CHANGELOG.md
+│   └── rootfs/
+├── data/
+│   └── booking_profile/     # ignored persistent Chrome profile
+├── logs/                    # ignored runtime logs
+├── scripts/                 # login, import-text, and manual check entrypoints
+├── tests/
+│   ├── fixtures/            # sanitized confirmations and Booking DOM
+│   ├── integration/
+│   ├── smoke/               # opt-in only; never normal CI
+│   └── unit/
+├── AGENTS.md
+├── ARCHITECTURE.md
+├── IMPLEMENTATION_PLAN.md
+├── README.md
+├── pyproject.toml
+├── .env.example
+└── repository.yaml
+```
+
+## Core domain
+
+`Reservation` is the reviewed, persisted fact of what was booked. It retains
+separate `booked_total_price`, `booked_payable_price`, `booked_base_price`,
+and `taxes_and_fees`; it never collapses these values into a single guessed
+total. It also captures property, dates, nights, adults/children/ages,
+rooms, room type/breakdown, meal and breakfast facts, cancellation and
+payment conditions, currency, source text, confidence, and active state.
+
+`ReservationCandidate` is an unpersisted extraction result. It includes
+field-level confidence, missing critical fields, ambiguous-price warnings,
+and validation errors. It can only be activated after a review confirms the
+critical fields.
+
+`RateOffer` represents one distinct rate, not a room row. It preserves room,
+occupancy, meal/breakfast/Genius facts, current and original prices,
+cancellation/payment/tax facts, source text and URL, timestamp, DOM evidence,
+and parser warnings.
+
+### Phase 3 rate-offer parser
+
+`BookingRateParser` consumes an already navigated page supplied by
+`BookingBrowserService`; it never launches a browser or owns a profile. It
+maps one `data-testid=rate-option` container to one typed `RateOffer` under its
+parent `data-testid=room-row`. A candidate without a scoped, parseable
+`current-price` is recorded as `PARTIAL` with a warning and is never converted
+into a made-up price.
+
+Selectors are centralized in `app/booking/selectors.py`. The current adapter
+prefers narrow data-testid relationships and puts localized money, breakfast,
+cancellation, and tax classification in `app/booking/normalization.py`. It
+distinguishes parser outcomes: `SUCCESS`, `NO_AVAILABILITY`,
+`UNSUPPORTED_STRUCTURE`, `PARTIAL`, and `ERROR`; an unsupported page can never
+masquerade as no availability.
+
+The adapter also supports Booking's current legacy availability-table shape:
+each `tr.js-rt-block-row` is a scoped rate container, with its own room-link,
+price, occupancy, cancellation, and payment descendants. This fallback is
+deliberately narrow and returns `UNSUPPORTED_STRUCTURE` or `PARTIAL` rather
+than treating an unknown DOM as no availability.
+
+Rate evidence retains only source rate text and selector names. Developers may
+use `scripts/capture_rate_fixture.py` to extract and sanitize the narrow
+availability subtree, but must inspect the result for personal data before any
+fixture is committed. It removes scripts and likely session/account-bearing
+attributes as a defense in depth; it never captures cookies or the profile.
+
+`MatchResult` contains `accepted`, score, classification (`equivalent` or
+`upgrade_candidate`), matched rate, reasons, warnings, and rejected
+candidates. `PriceCheck` is an append-only result with explicit status,
+comparable amount, booked amount, delta, rate snapshot, and error.
+
+## Data flow
+
+```mermaid
+flowchart LR
+  A["Pasted confirmation"] --> B["Deterministic extractor"]
+  B --> C["Candidate + validation"]
+  C --> D["User review / corrections"]
+  D --> E[("SQLite reservation")]
+  E --> F["Persistent logged-in Chrome"]
+  F --> G["Booking adapter: offers"]
+  G --> H["Exact reservation matcher"]
+  H -->|"accepted only"| I["Comparable-price service"]
+  I --> J[("Price checks + offers")]
+  J --> K["Deduplicated local alert"]
+  H -->|"no match / worse / ambiguous"| J
+```
+
+## Reservation import
+
+The deterministic parser uses section-aware, locale-tolerant patterns for
+dates, currency/amounts, guest and room counts, room text, cancellation text,
+and labelled totals. It returns `null` for unknown facts and flags competing
+totals rather than guessing. A replaceable LLM extraction provider may be
+called only for fields still ambiguous after deterministic parsing. Its typed
+output is merged only through the same validation path and is never persisted
+directly.
+
+## Browser lifecycle and Booking adapter
+
+`BookingBrowserService` owns the Playwright runtime, persistent context, and
+internal pages. It launches Chrome with the configured profile once, exposes
+login state, reuses a page or opens a replacement if closed, and serializes
+checks. It never enters credentials or attempts CAPTCHA/anti-bot bypass.
+
+The navigation layer produces direct URLs using the canonical hotel URL plus
+check-in/out, adults, children and ages, and rooms. Once a canonical URL is
+resolved it is stored on the reservation. Navigation detects logged-out and
+challenge pages and returns `LOGGED_OUT` or `CAPTCHA`, rather than a price.
+
+Selectors live in one Booking-specific module. The parser first scopes each
+room, then identifies its distinct rate containers, extracting each offer
+without selecting the first price in a table row. Stored sanitized fixtures
+are the primary regression contract; live Booking checks remain manual smoke
+tests.
+
+### Phase 2 browser-service boundary
+
+`BookingBrowserService` is the only interface later services use for Playwright
+lifecycle. It owns one persistent context, one primary page, and a re-entrant
+process-local lock that serializes `start`, page recovery, navigation, and
+shutdown. The high-level contract is `start()`, `stop()`, `ensure_page()`,
+`navigate(url)`, `current_page()`, `is_logged_in()`,
+`requires_manual_action()`, `status()`, and `health()`.
+
+The service exposes `STOPPED`, `STARTING`, `READY`, `LOGGED_OUT`,
+`LOGIN_REQUIRED`, `CAPTCHA_REQUIRED`, and `ERROR` states. It reports Booking
+authentication separately as `authenticated`, `logged_out`, or `unknown`;
+unknown is preferred to a false authentication claim. Account controls,
+sign-in controls, URL hints, and visible challenge text are combined without
+reading cookies or tokens.
+
+`NavigationResult` translates Playwright behavior to `SUCCESS`, `TIMEOUT`,
+`NAVIGATION_ERROR`, `BROWSER_CRASH`, `PAGE_CLOSED`, `LOGIN_REQUIRED`, or
+`CAPTCHA_REQUIRED`. `BrowserHealth` reports process/context/page availability,
+authentication/manual-action state, the last successful navigation, and a
+sanitized last error. If the primary page closes, the service deterministically
+reuses a surviving context page or creates a replacement; it never selects an
+unrelated popup by accident.
+
+Development uses the configured Chrome channel and the existing ignored
+profile at `data/booking_profile`. Future HA deployment replaces only the
+browser settings and `/data` path; the application interface remains the same.
+The profile has an exclusive Chrome lock, so a second browser process must not
+be launched against it while the managed context is already active.
+
+## Exact matcher
+
+Hard constraints reject a candidate with the wrong dates, rooms, insufficient
+occupancy, clearly different room, missing required breakfast, a
+non-refundable substitution for a flexible reservation, or materially worse
+cancellation/payment terms. Known meal and cancellation facts participate in
+matching; unknown facts do not get invented.
+
+Candidates surviving hard constraints receive an explainable score based on
+normalized room wording, known meal/occupancy/cancellation alignment, and
+evidence completeness. Room-name normalization may accept punctuation,
+singular/plural, and harmless wording differences, but does not equate
+materially different variants such as a balcony room. A better room is an
+`upgrade_candidate`, never silently equivalent.
+
+Only an accepted result is sent to the price service. That service compares
+like-for-like totals in the same currency and records a delta. A failed
+navigation, parsing error, logged-out state, CAPTCHA, or no match is stored
+as its own status, never as a price.
+
+### Phase 4 exact matcher
+
+`ExactReservationMatcher` is a pure domain service: it accepts a reviewed
+`Reservation` and `RateOffer` values and produces typed `MatchResult` and
+`CandidateEvaluation` objects. It has no Playwright, database, scheduler, UI,
+or Home Assistant dependency, and does not read price for scoring or selection.
+
+Known property mismatches, insufficient occupancy, room-type conflicts,
+missing booked breakfast, meal-plan mismatch, non-refundable substitution for
+a flexible booking, and earlier known cancellation deadlines are hard rejects.
+Unknown candidate occupancy, breakfast, meal, or cancellation facts produce
+`AMBIGUOUS` with warnings instead of being treated as false or accepted exactly.
+
+After hard rules, an interpretable weighted score combines room (45%),
+occupancy (20%), meal (15%), cancellation (15%), and payment (5%). Room names
+use conservative token/feature normalization; known room upgrades are returned
+as `UPGRADE_CANDIDATE` and excluded from automatic selection. The selection
+order is `EXACT`, `EQUIVALENT`, then `BETTER`; every candidate is preserved in
+the result. A later price service may only use an accepted result.
+
+## Phase 5 persistence and explicit checks
+
+`SQLiteDatabase` applies ordered, transactional migrations recorded in
+`schema_migrations`. Migration 1 creates `reservations`, append-only
+`price_checks`, and immutable `rate_offer_snapshots`; foreign keys are enabled
+on every connection. Reservation source text remains private local data. Money
+is stored as decimal text, never SQLite floating point, and timestamps are UTC
+ISO-8601 values.
+
+Each explicit check stores its terminal status and all parsed offers in the
+same transaction. Statuses are `SUCCESS`, `NO_MATCH`, `AMBIGUOUS`,
+`NO_AVAILABILITY`, `LOGGED_OUT`, `CAPTCHA_REQUIRED`, `NAVIGATION_ERROR`,
+`PARSER_ERROR`, `BROWSER_ERROR`, and `TIMEOUT`. History rows and snapshots are
+never updated, so a failed later check cannot overwrite an earlier result.
+
+`PriceCheckService` joins the existing browser, parser, matcher, pricing, and
+repository layers for one user-invoked check. It does not schedule checks,
+send alerts, or modify bookings.
+
+The comparable-price policy is deliberately narrow: only an accepted matcher
+result, a matching currency, a known booked total, and a current offer that
+explicitly includes mandatory taxes/fees are comparable. The basis is
+`final_total_including_taxes`; no conversion or inferred tax value is used.
+`delta_amount = current_price - booked_total`, so a negative delta is cheaper.
+
+## Phase 6 scheduling and alerts
+
+`ReservationScheduler` is a lightweight, pollable single-process scheduler.
+It loads active reservations and persisted `schedule_states`, then delegates
+each due item to `CheckRunner`. The runner owns one lock, so manual and
+scheduled operations use the same browser/check pipeline and cannot navigate
+the persistent browser context concurrently. `stop()` prevents further polls;
+state is in SQLite rather than in-memory timers, so restart recovery is simply
+the next `run_due()` call.
+
+The default interval is eight hours (three checks per day). Disabled
+reservations and reservations on/after check-in are skipped. Normal terminal
+states reset the failure count. Navigation, timeout, browser, and parser
+failures back off exponentially up to 24 hours. Login and CAPTCHA conditions
+wait seven days, avoiding repeated requests until the user manually recovers
+the session. Jitter is injectable and bounded to ten minutes (or 10% of the
+delay) for deterministic tests.
+
+Migration 2 adds `schedule_states` and `alerts`. Alerts have a stable dedupe
+key, acknowledgement state, and separately mutable delivery status. A
+`PRICE_DROP` requires a successful, comparable check with a negative delta;
+its key includes reservation, current comparable price, and match
+classification. A new lower observed price may separately create
+`NEW_HISTORICAL_LOW`; this is distinct from being below the booked price.
+`LOGIN_REQUIRED`, `CAPTCHA_REQUIRED`, and thresholded `CHECK_FAILED` alerts
+use stable state keys to suppress repeats. `ConsoleNotificationAdapter` is the
+local notification boundary; a delivery failure is recorded on the alert and
+never rolls back the underlying check.
+
+## Phase 7 local web interface
+
+The local FastAPI/Jinja interface is server-rendered with local CSS and no
+frontend build step. `create_app(base_path=...)` prefixes every generated
+route, form action, redirect, and static asset path; tests exercise the UI at
+`/bookingtracker-test/`. It uses a per-process CSRF token for state-changing
+forms, POST-only mutations, escaped template values, and never renders browser
+profile paths, cookies, tokens, or dashboard source confirmation text.
+
+The application lifespan migrates SQLite and owns one poll task; it invokes the
+existing persistent scheduler and stops it cleanly on shutdown. It constructs,
+but does not automatically launch, the headed browser service. Dashboard,
+extraction/review, detail/history, alerts, and browser-status screens remain
+thin adapters over existing repositories and `CheckRunner`; no browser,
+matching, or price logic is duplicated in routes.
+
+For production, `HomeAssistantNotificationAdapter` is added alongside the
+local adapter. It sends deduplicated Home Assistant notifications and exposes
+safe state such as browser status, active reservation count, last successful
+or failed check, best saving, and manual-action required. Core code remains
+usable without Home Assistant.
+
+## Raspberry Pi resource and deployment risks
+
+The Pi runtime intentionally has one FastAPI process, one scheduler, one
+Chromium context, SQLite, and bounded rotating logs. Chromium is the dominant
+memory consumer; a 4 GB Pi is the practical minimum and 8 GB is preferred when
+using manual noVNC. Normal idle operation should have low CPU.
+
+The primary technical risk is native aarch64 Chromium/Playwright availability
+and system dependencies inside the selected add-on base image. Phase 8 is not
+complete until a native arm64 image builds, starts, migrates `/data`, passes its
+health endpoint, cleanly stops, and proves the browser can start. Phase 9 adds
+the Ingress/WebSocket/noVNC test under a non-root base path. These checks never
+require a real Booking login in CI.
+
+## Reference review
+
+TripWatch's public implementation usefully demonstrates a shared price-check
+pipeline, append-only price history, explicit guest/multi-room input,
+cancellation-aware matching, check-now actions, and scheduled runs. This
+project adopts those concepts, not its implementation: TripWatch's Supabase,
+NAS service, Vercel cron, public SaaS concerns, and inbound-email flow are out
+of scope. BookingTracker instead uses the user's own persistent logged-in
+Chrome context and local SQLite.
+
+Public HA Chromium/noVNC references demonstrate the Xvfb + window manager +
+VNC + websockify topology. BookingTracker adopts only that operational pattern
+and keeps it behind authenticated Ingress; it does not expose a standalone
+remote desktop service.

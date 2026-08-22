@@ -1,0 +1,16 @@
+name: BookingTracker
+version: "0.1.0"
+slug: bookingtracker
+description: Exact Booking.com reservation tracker
+url: https://github.com/krsnak/bookingtracker
+arch: [aarch64]
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8000
+panel_icon: mdi:calendar-search
+options: {}
+schema: {}
+ports: {}
+map: [data:rw]
+init: false

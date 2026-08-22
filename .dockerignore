@@ -1,0 +1,21 @@
+.git/
+.venv/
+data/
+logs/
+.env
+.env.*
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*Cookies*
+*Session*
+*Singleton*
+*Local State*
+*Login Data*
+*Secure Preferences*
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+bookingtracker.egg-info/

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime state and secrets
+.env
+.env.*
+data/
+logs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*Cookies*
+*Session*
+*Singleton*
+*Local State*
+*Login Data*
+*Secure Preferences*
+bookingtracker.egg-info/
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/

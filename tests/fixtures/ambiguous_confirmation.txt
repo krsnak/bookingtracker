@@ -1,0 +1,12 @@
+Booking confirmation
+Property: Example Lodge
+Arrival
+September 10, 2026
+Departure
+September 12, 2026
+Your reservation
+2 nights, Double Room
+1 adult
+Price information
+Total price €100.00
+Total price €110.00

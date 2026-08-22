@@ -1,0 +1,1 @@
+"""BookingTracker application package."""
