@@ -84,3 +84,32 @@ def test_missing_critical_fields_block_activation() -> None:
     }
     assert not candidate.can_activate
     assert candidate.field_confidence["property_name"] is FieldConfidence.UNKNOWN
+
+
+def test_extracts_czech_markdown_tables_without_cross_section_price_confusion() -> None:
+    candidate = extract_fixture("booking_czech_markdown_confirmation.txt")
+
+    assert candidate.property_name == "Papaya Hostel"
+    assert (
+        candidate.booking_url == "https://www.booking.com/hotel/ma/moroccan-friends-guesthouse.html"
+    )
+    assert candidate.check_in == date(2026, 9, 5)
+    assert candidate.check_out == date(2026, 9, 6)
+    assert candidate.nights == 1
+    assert candidate.adults == 2
+    assert candidate.children is None  # Unspecified children remain unknown, never assumed absent.
+    assert candidate.room_type == "Třílůžkový pokoj s balkonem"
+    assert candidate.breakfast_included is True
+    assert candidate.meal_plan == "Breakfast included"
+    assert candidate.booked_base_price == Decimal("19.13")
+    assert candidate.vat == Decimal("3.83")
+    assert candidate.city_tax == Decimal("2")
+    assert candidate.taxes_and_fees == Decimal("5.83")
+    assert candidate.booked_total_price == Decimal("24.95")
+    assert candidate.booked_payable_price == Decimal("22.95")
+    assert candidate.currency == "EUR"
+    assert candidate.free_cancellation is True
+    assert candidate.cancellation_deadline == datetime(2026, 9, 3, 23, 59)
+    assert candidate.payment_conditions == "Booking automaticky strhne částku z karty"
+    assert any("rounding" in warning for warning in candidate.warnings)
+    assert candidate.can_activate

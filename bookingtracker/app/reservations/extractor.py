@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from app.reservations.deterministic_parser import (
     clean_lines,
+    parse_booking_url,
     parse_cancellation,
     parse_dates,
     parse_meal_facts,
     parse_nights,
     parse_occupancy,
+    parse_payment_conditions,
     parse_prices,
     parse_property_name,
     parse_room,
@@ -30,6 +32,7 @@ class ReservationExtractor:
         meal_plan, breakfast_included = parse_meal_facts(lines)
         field_values = {
             "property_name": parse_property_name(lines),
+            "booking_url": parse_booking_url(lines),
             "check_in": check_in,
             "check_out": check_out,
             "adults": adults,
@@ -59,6 +62,7 @@ class ReservationExtractor:
             taxes_and_fees=price.taxes_and_fees,
             vat=price.vat,
             city_tax=price.city_tax,
+            payment_conditions=parse_payment_conditions(lines),
             source_text=source_text,
             extraction_confidence=confidence,
             field_confidence=field_confidence,

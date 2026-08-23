@@ -10,6 +10,20 @@ from decimal import Decimal, InvalidOperation
 from app.reservations.models import PriceBreakdown, RoomBreakdown
 
 _MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
+_CZECH_MONTHS = {
+    "ledna": 1,
+    "února": 2,
+    "března": 3,
+    "dubna": 4,
+    "května": 5,
+    "června": 6,
+    "července": 7,
+    "srpna": 8,
+    "září": 9,
+    "října": 10,
+    "listopadu": 11,
+    "prosince": 12,
+}
 _DATE_PATTERN = re.compile(
     rf"(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*)?"
     rf"({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})",
@@ -22,10 +36,45 @@ _AMOUNT_PATTERN = re.compile(
     r"([\d][\d\s.,]*\d|\d)\s*(EUR|USD|GBP|CZK|PLN|NOK))",
     re.IGNORECASE,
 )
+_PROPERTY_EXCLUSIONS = (
+    r"arrival|departure|reservation|guests|příjezd|odjezd|"
+    r"vaše rezervace|rezervace pro|booking url"
+)
+_CANCELLATION_HEADINGS = (
+    r"cancellation conditions?|cancellation fee|podmínky zrušení rezervace|"
+    r"poplatek za zrušení rezervace"
+)
 
 
 def clean_lines(source_text: str) -> list[str]:
-    return [re.sub(r"\s+", " ", line).strip() for line in source_text.splitlines() if line.strip()]
+    """Normalize safe Markdown presentation into semantic confirmation lines."""
+    lines: list[str] = []
+    for raw in source_text.splitlines():
+        line = raw.strip()
+        if not line or re.fullmatch(r"\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?", line):
+            continue
+        line = re.sub(r"!\[[^]]*\]\([^)]*\)", "", line)  # Gmail/content images have no facts.
+        links = re.findall(r"(?<!!)\[([^]]+)\]\(([^)]+)\)", line)
+        for label, url in links:
+            line = line.replace(f"[{label}]({url})", label)
+            if re.fullmatch(r"https://www\.booking\.com/hotel/[^\s?#]+", url):
+                lines.append(f"Booking URL: {url}")
+        line = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
+        line = re.sub(r"^#{1,6}\s*", "", line)
+        if line.startswith("|") and line.endswith("|"):
+            cells = [re.sub(r"\s+", " ", cell).strip() for cell in line.strip("|").split("|")]
+            cells = [cell for cell in cells if cell]
+            if len(cells) == 2:
+                lines.append(f"{cells[0]}: {cells[1]}")
+            elif len(cells) == 1:
+                lines.append(cells[0])
+            elif len(cells) > 1:
+                lines.extend(cells)
+            continue
+        line = re.sub(r"\s+", " ", line).strip()
+        if line:
+            lines.append(line)
+    return lines
 
 
 def parse_date(value: str) -> date | None:
@@ -37,6 +86,15 @@ def parse_date(value: str) -> date | None:
             return None
     match = _DATE_PATTERN.search(value)
     if not match:
+        czech = re.search(r"\b(\d{1,2})\.\s*([A-Za-záčďéěíňóřšťúůýž]+)\s+(\d{4})", value, re.I)
+        if czech:
+            day, month, year = czech.groups()
+            month_number = _CZECH_MONTHS.get(month.casefold())
+            if month_number:
+                try:
+                    return date(int(year), month_number, int(day))
+                except ValueError:
+                    return None
         return None
     try:
         return datetime.strptime(" ".join(match.groups()), "%B %d %Y").date()
@@ -84,7 +142,9 @@ def find_after_heading(lines: list[str], heading: str) -> str | None:
 
 def parse_property_name(lines: list[str]) -> str | None:
     for line in lines:
-        match = re.match(r"(?:property|property name|accommodation|hotel)\s*:\s*(.+)", line, re.I)
+        match = re.match(
+            r"(?:property|property name|accommodation|hotel|ubytování)\s*:\s*(.+)", line, re.I
+        )
         if match:
             return match.group(1).strip()
     blocked = {"booking.com", "booking confirmation", "booking information", "your reservation"}
@@ -93,7 +153,7 @@ def parse_property_name(lines: list[str]) -> str | None:
             if (
                 len(line) > 2
                 and not re.match(r"^\d", line)
-                and not re.search(r"^(arrival|departure|reservation|guests)", line, re.I)
+                and not re.search(rf"^({_PROPERTY_EXCLUSIONS})", line, re.I)
             ):
                 return line
     return None
@@ -105,9 +165,9 @@ def parse_dates(lines: list[str]) -> tuple[date | None, date | None]:
     for index, line in enumerate(lines):
         nearby = " ".join(lines[index : index + 2])
         parsed = parse_date(nearby)
-        if parsed and re.search(r"^(arrival|check-in|check in)$", line, re.I):
+        if parsed and re.search(r"^(arrival|check-in|check in|příjezd)\s*:", line, re.I):
             arrivals.append(parsed)
-        if parsed and re.search(r"^(departure|check-out|check out)$", line, re.I):
+        if parsed and re.search(r"^(departure|check-out|check out|odjezd)\s*:", line, re.I):
             departures.append(parsed)
     if arrivals or departures:
         return (arrivals[0] if arrivals else None, departures[0] if departures else None)
@@ -117,8 +177,8 @@ def parse_dates(lines: list[str]) -> tuple[date | None, date | None]:
 
 def parse_occupancy(lines: Iterable[str]) -> tuple[int | None, int | None, list[int] | None]:
     joined = "\n".join(lines)
-    adults_match = re.search(r"\b(\d+)\s+adults?\b", joined, re.I)
-    children_match = re.search(r"\b(\d+)\s+child(?:ren)?\b", joined, re.I)
+    adults_match = re.search(r"\b(\d+)\s+(?:adults?|dospěl[ií])\b", joined, re.I)
+    children_match = re.search(r"\b(\d+)\s+(?:child(?:ren)?|dět[ií])\b", joined, re.I)
     ages_match = re.search(r"(?:children(?:'s)? ages?|ages?)\s*[:\-]?\s*([\d, /]+)", joined, re.I)
     ages = [int(item) for item in re.findall(r"\d+", ages_match.group(1))] if ages_match else None
     return (
@@ -130,7 +190,7 @@ def parse_occupancy(lines: Iterable[str]) -> tuple[int | None, int | None, list[
 
 def parse_room(lines: list[str]) -> tuple[int | None, str | None, list[RoomBreakdown] | None]:
     for line in lines:
-        nights_match = re.search(r"\b\d+\s+nights?\s*,\s*(.+)$", line, re.I)
+        nights_match = re.search(r"\b\d+\s+(?:nights?|noc(?:i)?)\s*,\s*(.+)$", line, re.I)
         if nights_match and re.search(
             r"\b(room|suite|dormitory|apartment|studio)\b", nights_match.group(1), re.I
         ):
@@ -151,11 +211,15 @@ def parse_room(lines: list[str]) -> tuple[int | None, str | None, list[RoomBreak
             count = int(match.group(1))
             room_type = match.group(2).strip()
             return count, room_type, [RoomBreakdown(room_type=room_type, count=count)]
+        czech = re.search(r"(?:vaše rezervace\s*:\s*)?\d+\s+noc(?:i)?\s*,\s*(.+)$", line, re.I)
+        if czech:
+            room_type = czech.group(1).strip(" ,")
+            return 1, room_type, [RoomBreakdown(room_type=room_type, count=1)]
     return None, None, None
 
 
 def parse_nights(lines: Iterable[str]) -> int | None:
-    match = re.search(r"\b(\d+)\s+nights?\b", "\n".join(lines), re.I)
+    match = re.search(r"\b(\d+)\s+(?:nights?|noc(?:i)?)\b", "\n".join(lines), re.I)
     return int(match.group(1)) if match else None
 
 
@@ -167,10 +231,10 @@ def parse_prices(lines: list[str]) -> tuple[PriceBreakdown, list[str], list[str]
     totals_by_section: dict[str, list[Decimal]] = {"price": [], "payment": []}
     for line in lines:
         lowered = line.casefold()
-        if "payment information" in lowered:
+        if "payment information" in lowered or "informace o platbě" in lowered:
             in_payment = True
             continue
-        if "price information" in lowered:
+        if "price information" in lowered or "informace o ceně" in lowered:
             in_payment = False
             continue
         money = parse_money(line)
@@ -181,22 +245,24 @@ def parse_prices(lines: list[str]) -> tuple[PriceBreakdown, list[str], list[str]
         if prices.currency != currency:
             warnings.append(f"multiple currencies found ({prices.currency}, {currency})")
             continue
-        if re.search(r"\bvat\b", line, re.I):
+        if re.search(r"\b(?:vat|dph)\b", line, re.I):
             prices.vat = amount
-        elif re.search(r"city tax", line, re.I):
+        elif re.search(r"city tax|městská daň", line, re.I):
             prices.city_tax = amount
         elif re.search(r"\b(?:tax|taxes|fees?)\b", line, re.I):
             prices.taxes_and_fees = amount
-        elif re.search(r"total future payments?|amount payable|payable", line, re.I):
+        elif re.search(
+            r"total future payments?|amount payable|payable|plánované platby celkem", line, re.I
+        ):
             prices.payable_price = amount
-        elif re.search(r"total price|reservation total", line, re.I):
+        elif re.search(r"total price|reservation total|celková cena", line, re.I):
             section = "payment" if in_payment else "price"
             totals_by_section[section].append(amount)
             if in_payment:
                 prices.payable_price = prices.payable_price or amount
             else:
                 prices.total_price = prices.total_price or amount
-        elif re.match(r"\s*\d+\s+.+?(?:room|suite|dormitory|apartment|studio).+", line, re.I):
+        elif re.match(r"\s*\d+\s+.+?(?:room|suite|dormitory|apartment|studio|pokoj).+", line, re.I):
             prices.base_price = prices.base_price or amount
     for section, totals in totals_by_section.items():
         if len(set(totals)) > 1:
@@ -204,6 +270,11 @@ def parse_prices(lines: list[str]) -> tuple[PriceBreakdown, list[str], list[str]
             warnings.append(f"conflicting total amounts in {section} section")
     if prices.taxes_and_fees is None and prices.vat is not None and prices.city_tax is not None:
         prices.taxes_and_fees = prices.vat + prices.city_tax
+        if prices.total_price is not None and prices.base_price is not None:
+            if abs(prices.base_price + prices.taxes_and_fees - prices.total_price) <= Decimal(
+                "0.01"
+            ):
+                warnings.append("explicit total differs from itemized tax lines by rounding")
     return prices, warnings, ambiguous
 
 
@@ -211,9 +282,11 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
     relevant: list[str] = []
     in_section = False
     for line in lines:
-        if re.search(r"cancellation conditions?|cancellation fee", line, re.I):
+        if re.search(_CANCELLATION_HEADINGS, line, re.I):
             in_section = True
-        if in_section and re.search(r"^(price|payment) information", line, re.I):
+        if in_section and re.search(
+            r"^(price|payment) information|^informace o (ceně|platbě)", line, re.I
+        ):
             break
         if in_section or re.search(r"non-refundable|refundable", line, re.I):
             relevant.append(line)
@@ -222,7 +295,9 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
     text = " ".join(relevant)
     if re.search(r"non-refundable", text, re.I):
         free = False
-    elif re.search(r"free (?:of charge )?cancellation|cancel .*free of charge", text, re.I):
+    elif re.search(
+        r"free (?:of charge )?cancellation|cancel .*free of charge|zdarma do", text, re.I
+    ):
         free = True
     else:
         free = None
@@ -239,13 +314,41 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
             deadline = datetime.strptime(timestamp, "%B %d %Y %H:%M")
         except ValueError:
             pass
+    if deadline is None:
+        czech = re.search(
+            r"zdarma do\s+(\d{1,2})\.\s*([A-Za-záčďéěíňóřšťúůýž]+)\s+(\d{4})\s+(\d{1,2}):(\d{2})",
+            text,
+            re.I,
+        )
+        if czech:
+            day, month, year, hour, minute = czech.groups()
+            month_number = _CZECH_MONTHS.get(month.casefold())
+            if month_number:
+                deadline = datetime(int(year), month_number, int(day), int(hour), int(minute))
     return text, free, deadline
 
 
 def parse_meal_facts(lines: Iterable[str]) -> tuple[str | None, bool | None]:
     joined = "\n".join(lines)
-    if re.search(r"breakfast (?:is )?included|includes breakfast", joined, re.I):
+    if re.search(
+        r"breakfast (?:is )?included|includes breakfast|konečná cena zahrnuje snídani", joined, re.I
+    ):
         return "Breakfast included", True
     if re.search(r"breakfast (?:is )?not included|no breakfast", joined, re.I):
         return None, False
     return None, None
+
+
+def parse_booking_url(lines: Iterable[str]) -> str | None:
+    for line in lines:
+        match = re.match(r"Booking URL:\s*(https://www\.booking\.com/hotel/[^\s?#]+)$", line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def parse_payment_conditions(lines: Iterable[str]) -> str | None:
+    for line in lines:
+        if re.search(r"booking automaticky strhne částku z karty", line, re.I):
+            return "Booking automaticky strhne částku z karty"
+    return None

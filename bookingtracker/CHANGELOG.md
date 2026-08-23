@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+Parse sanitized Czech Markdown Booking confirmations deterministically,
+including safe Booking property links, labelled tables, Czech dates, sectioned
+price/payment totals, cancellation facts, and room-specific breakfast evidence.
+
 ## 0.3.3
 
 Complete Phase 10 production verification and add tag-gated GitHub Actions
