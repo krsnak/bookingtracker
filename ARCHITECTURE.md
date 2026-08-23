@@ -380,6 +380,11 @@ delivery leaves the immutable price check and generated internal alert intact;
 the attempt, sanitized error, and delivery state are persisted for a safe retry
 without regenerating or duplicating the alert.
 
+Phase 10 production verification completed on Raspberry Pi 4 / Home Assistant
+OS with the configured `notify.roman` entity. The BookingTracker diagnostic was
+delivered by Home Assistant's Telegram Broadcast integration; token and chat
+configuration remained entirely within Home Assistant.
+
 ## Raspberry Pi resource and deployment risks
 
 The Pi runtime intentionally has one FastAPI process, one scheduler, one
@@ -396,10 +401,25 @@ non-root base path, persistent manual Booking login, and persistent-context
 browser smoke on the real Pi. These checks never require a real Booking login
 in CI.
 
-Deployment backlog: build and publish a prebuilt ARM64 add-on image through
-GitHub Actions and GHCR, so Home Assistant avoids a lengthy local build for
-each update and users are not left with an installation spinner without
-progress.
+## Prebuilt add-on distribution
+
+The production image has one Dockerfile: `bookingtracker/Dockerfile`. A
+tag-gated GitHub Actions release verifies pytest, Ruff, production imports,
+packaging, and version consistency before building it for `linux/arm64` and
+pushing `ghcr.io/krsnak/bookingtracker-addon:<version>`. The Docker labels use
+the same release version and `aarch64` build arguments. `config.yaml` names the
+generic GHCR image and its matching `version`, so Supervisor pulls the precise
+release instead of running a local build.
+
+The repository's first GHCR package publication must be made public in GitHub
+Packages; Home Assistant then pulls it anonymously with no registry credentials
+in the add-on. The workflow has only `contents: read` and `packages: write` and
+uses `GITHUB_TOKEN`; it never receives user data, browser state, Telegram
+credentials, or `SUPERVISOR_TOKEN`. A failed release never updates the add-on
+manifest version. For ordinary upgrades use Home Assistant's Update button;
+`ha store repair` and Supervisor restart remain emergency diagnostics. Rollback
+means selecting the repository revision whose manifest points to the preceding
+known-good immutable image version.
 
 ## Reference review
 

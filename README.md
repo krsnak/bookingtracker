@@ -22,7 +22,7 @@ Production state persists in add-on `/data`:
 - `/data/booking_profile/`
 - `/data/logs/`
 
-Phases 1–9 are complete: reservation import, persistent browser service,
+Phases 1–10 are complete: reservation import, persistent browser service,
 fixture-backed rate parsing, exact reservation matching, SQLite history,
 local scheduling with alerts, the local web UI, and Home Assistant add-on
 packaging.
@@ -86,7 +86,7 @@ development does not enable Xvfb, VNC, or noVNC.
 
 ## Phase 10 notification policy
 
-Phase 10 is in progress and is not production-complete. Its default minimum
+Phase 10 is production-complete. Its default minimum
 comparable price drop is 5%; an individual reservation may set a Decimal
 override from greater than 0 through 100%. A price-drop notification requires
 the existing accepted/comparable exact-match gate, same currency, and final
@@ -100,6 +100,28 @@ Home Assistant owns Telegram configuration and secrets. BookingTracker uses a
 generic configured `notify.*` entity through its internal API proxy, so another
 HA notifier can be used later. Delivery failures retain the price check and
 internal alert, store only a sanitized error, and allow a safe retry.
+
+The `0.3.2` Pi verification delivered BookingTracker's diagnostic through the
+configured `notify.roman` entity. Home Assistant owns the Telegram bot token
+and chat configuration; BookingTracker does not store either.
+
+## Add-on releases
+
+Normal updates are one click in Home Assistant: version `0.3.3` and later use
+the public prebuilt ARM64 image `ghcr.io/krsnak/bookingtracker-addon:<version>`.
+Supervisor resolves the tag from `config.yaml` and downloads it rather than
+building on the Pi. Before the first release, make the linked GHCR package
+public in GitHub Packages; otherwise Supervisor cannot pull it anonymously.
+
+Release procedure: update both project versions, update the changelog, push the
+commit, and create a matching protected tag such as `v0.3.3`. The GitHub Actions
+workflow tests, lints, verifies version consistency, and then publishes only
+the ARM64 image. Confirm the workflow is green before selecting **Update** in
+Home Assistant. To roll back, select/reinstall the prior repository revision
+whose version points to the prior known-good image. `ha store repair` and a
+Supervisor restart are emergency diagnostics only—use them for a stale store or
+failed pull, not normal updates. The old local-build timeout is expected only
+for a repository revision without `image:`.
 
 ## Remote/manual browser recovery
 

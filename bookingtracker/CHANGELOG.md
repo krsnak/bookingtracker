@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+Complete Phase 10 production verification and add tag-gated GitHub Actions
+publication of a prebuilt public ARM64 GHCR add-on image.
+
 ## 0.3.2
 
 Fix Home Assistant Core REST `notify.send_message` payloads to use top-level

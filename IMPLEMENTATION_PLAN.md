@@ -2,9 +2,9 @@
 
 ## Status
 
-Phases 0–9 are complete. The architecture supports macOS development and
-Raspberry Pi 4 aarch64 Home Assistant production. Phase 10 is next and has not
-started.
+Phases 0–10 are complete. The architecture supports macOS development and
+Raspberry Pi 4 aarch64 Home Assistant production. Prebuilt add-on distribution
+is the next deployment milestone.
 
 ## Phase 0 — foundation audit (complete)
 
@@ -159,28 +159,34 @@ in the same persistent context: `architecture: aarch64`,
 `test_page_closed: True`, and `error: None`. The responsive 16:9 noVNC iframe
 and CSS content-hash cache-busting were also verified.
 
-## Phase 10 — Home Assistant notifications and state
+## Phase 10 — Home Assistant notifications and state (complete)
 
-1. [ ] Add a platform-independent notification boundary and Home Assistant
+1. [x] Add a platform-independent notification boundary and Home Assistant
    adapter without coupling core logic to HA APIs. The adapter calls the Core
    API proxy with `SUPERVISOR_TOKEN`; it does not access Telegram directly.
-2. [ ] Add a global 5% minimum price-drop threshold with an optional per-
+2. [x] Add a global 5% minimum price-drop threshold with an optional per-
    reservation Decimal override (valid range >0 through 100).
-3. [ ] Create PRICE_DROP alerts only from accepted, comparable exact or
+3. [x] Create PRICE_DROP alerts only from accepted, comparable exact or
    explicitly-better matches with matching currency and final-tax basis.
-4. [ ] Persist percentage-band deduplication (5%, 10%, 15%, ... by default).
+4. [x] Persist percentage-band deduplication (5%, 10%, 15%, ... by default).
    A threshold change establishes a silent historical high-water baseline, so
    changing configuration cannot immediately replay historical notifications.
-5. [ ] Add Ingress-safe web controls for the global threshold, HA notify entity,
+5. [x] Add Ingress-safe web controls for the global threshold, HA notify entity,
    per-reservation override, delivery status, and safe retry.
-6. [ ] Verify real delivery through a Home Assistant notify entity on the Pi;
-   Phase 10 remains incomplete until then.
+6. [x] Verify real delivery through a Home Assistant notify entity on the Pi.
+
+Production verification completed on Raspberry Pi 4 / Home Assistant OS with
+version `0.3.2`: the configured `notify.roman` entity delivered the
+BookingTracker diagnostic through Home Assistant's Telegram Broadcast
+integration. Home Assistant owns the bot token and chat configuration;
+BookingTracker stores neither. The existing exact-match/comparable gate, band
+deduplication, CSRF, and persistent browser lifecycle remained unchanged.
 
 ## Deployment backlog
 
-- Build and publish a prebuilt ARM64 add-on image through GitHub Actions and
-  GHCR so Home Assistant does not perform a long local build for every update
-  or leave the user dependent on an installation spinner without progress.
+- [x] Build and publish a prebuilt ARM64 add-on image through GitHub Actions
+  and GHCR so Home Assistant downloads the release image instead of performing
+  a long local build for every update.
 
 ## Risks and mitigations
 

@@ -1,0 +1,57 @@
+name: Publish Home Assistant add-on
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact release version matching config.yaml and pyproject.toml
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: pip install -e "./bookingtracker[dev]"
+      - name: Verify release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          RELEASE_VERSION="${RELEASE_VERSION#v}" python bookingtracker/scripts/verify_release.py
+      - name: Test and lint
+        run: |
+          cd bookingtracker
+          pytest
+          ruff check .
+          python -c 'import app.web.main; import app.browser.session'
+          pytest tests/unit/test_addon_packaging.py -q
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish ARM64 image
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          docker buildx build --platform linux/arm64 --push \
+            --build-arg BUILD_VERSION="$VERSION" \
+            --build-arg BUILD_ARCH=aarch64 \
+            --tag "ghcr.io/krsnak/bookingtracker-addon:$VERSION" \
+            --provenance=false \
+            bookingtracker

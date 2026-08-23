@@ -1,9 +1,10 @@
 name: BookingTracker
-version: "0.3.2"
+version: "0.3.3"
 slug: bookingtracker
 description: Exact Booking.com reservation tracker
 url: https://github.com/krsnak/bookingtracker
 arch: [aarch64]
+image: ghcr.io/krsnak/bookingtracker-addon
 startup: application
 boot: auto
 ingress: true

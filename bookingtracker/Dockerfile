@@ -1,5 +1,10 @@
 ARG BUILD_FROM=debian:12-slim
 FROM $BUILD_FROM
+ARG BUILD_VERSION
+ARG BUILD_ARCH
+LABEL io.hass.version=$BUILD_VERSION \
+      io.hass.type=addon \
+      io.hass.arch=$BUILD_ARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv chromium fonts-dejavu-core ca-certificates \
     xvfb openbox x11vnc novnc websockify xauth \

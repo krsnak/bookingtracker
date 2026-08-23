@@ -20,7 +20,7 @@ subsequent protected smoke succeeded in the same persistent context using
 `/usr/bin/chromium`; the 16:9 noVNC iframe and CSS content-hash cache-busting
 also worked.
 
-Phase 10 remains pending real-Pi HA notify verification. It adds a default 5%
+Phase 10 is complete following real-Pi HA notify verification. It adds a default 5%
 Decimal price-drop threshold, optional per-reservation override, and persisted
 percentage-band deduplication. Only accepted/comparable exact or explicitly
 better matches can notify. Home Assistant owns Telegram secrets; BookingTracker
@@ -32,7 +32,22 @@ On a Home Assistant deployment, save the desired `notify.*` entity in
 Notification settings, then use **Send test notification**. The diagnostic uses
 the configured production HA adapter but creates no price check, alert, or
 deduplication state. Its one-time result is shown after redirecting back to
-Settings. Phase 10 remains pending until this button is verified on the Pi.
+Settings.
+
+That diagnostic was verified on Raspberry Pi 4 / Home Assistant OS with
+`notify.roman` and Telegram Broadcast. Home Assistant owns the Telegram bot
+token and chat configuration; BookingTracker does not retain them.
 
 The Home Assistant REST service call uses top-level `entity_id`, `title`, and
 `message` fields for `notify.send_message`.
+
+## Prebuilt ARM64 updates
+
+From version `0.3.3`, Home Assistant pulls the public release image
+`ghcr.io/krsnak/bookingtracker-addon:<version>` for normal one-click updates;
+it does not build the add-on on the Pi. Releases are created only by a matching
+`v<version>` Git tag after GitHub Actions verifies tests, lint, imports,
+packaging, and version consistency. Before the first release, make the GHCR
+package public in GitHub Packages. If an update fails to resolve, `ha store
+repair` and a Supervisor restart are emergency diagnostics; roll back by using
+the repository revision pointing to the previous known-good image.
