@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6
+
+Reject ambiguous, reversed, or equal imported stay dates before Pydantic model
+construction. The import UI now presents a safe validation message instead of
+an internal error, while preserving labelled arrival/departure priority and
+never treating cancellation dates as stay dates.
+
 ## 0.3.5
 
 Fix deterministic import of long Czech Gmail Markdown confirmations: canonical

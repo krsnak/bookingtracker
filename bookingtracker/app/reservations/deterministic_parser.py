@@ -56,6 +56,9 @@ _PROPERTY_UI_TEXT = {
     "booking information",
     "your reservation",
 }
+INVALID_DATE_RANGE_MESSAGE = (
+    "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu. Zkontrolujte vložené potvrzení."
+)
 
 
 def canonical_booking_hotel_url(value: str) -> str | None:
@@ -231,24 +234,93 @@ def _is_property_name(value: str) -> bool:
     )
 
 
-def parse_dates(lines: list[str]) -> tuple[date | None, date | None]:
+def parse_dates_with_evidence(
+    lines: list[str],
+) -> tuple[date | None, date | None, list[str], list[str]]:
+    """Prefer labelled stay dates and never return a model-invalid date range."""
     arrivals: list[date] = []
     departures: list[date] = []
+    labelled_indexes: set[int] = set()
     for index, line in enumerate(lines):
         nearby = " ".join(lines[index : index + 2])
         parsed = parse_date(nearby)
         if parsed and re.search(r"^(arrival|check-in|check in|příjezd)\s*:", line, re.I):
             arrivals.append(parsed)
+            labelled_indexes.add(index)
         if parsed and re.search(r"^(departure|check-out|check out|odjezd)\s*:", line, re.I):
             departures.append(parsed)
+            labelled_indexes.add(index)
     if arrivals or departures:
         check_in = arrivals[0] if arrivals else None
         check_out = departures[0] if departures else None
         if check_in and check_out and check_out > check_in:
-            return check_in, check_out
-        return None, None
-    all_dates = [parsed for line in lines if (parsed := parse_date(line))]
-    return (all_dates[0], all_dates[1]) if len(all_dates) >= 2 else (None, None)
+            fallback_dates = [
+                parsed
+                for index, parsed in _fallback_stay_dates(lines)
+                if index not in labelled_indexes
+            ]
+            warnings = (
+                ["Explicitní data pobytu mají přednost před konfliktním pomocným datem."]
+                if any(value not in {check_in, check_out} for value in fallback_dates)
+                else []
+            )
+            return check_in, check_out, warnings, []
+        if check_in is None or check_out is None:
+            return check_in, check_out, ["Chybí jedno z explicitně označených dat pobytu."], []
+        return (
+            None,
+            None,
+            ["Nekonzistentní explicitní data pobytu byla odmítnuta."],
+            [INVALID_DATE_RANGE_MESSAGE],
+        )
+    all_dates = [parsed for _, parsed in _fallback_stay_dates(lines)]
+    if len(all_dates) < 2:
+        return (all_dates[0] if all_dates else None), None, [], []
+    check_in, check_out = all_dates[0], all_dates[1]
+    if check_out > check_in:
+        return check_in, check_out, [], []
+    return (
+        None,
+        None,
+        ["Nekonzistentní pomocná data pobytu byla odmítnuta."],
+        [INVALID_DATE_RANGE_MESSAGE],
+    )
+
+
+def _is_cancellation_date_line(line: str) -> bool:
+    return bool(
+        re.search(
+            r"cancel|cancellation|storno|zrušení|poplatek|zdarma do|free of charge", line, re.I
+        )
+    )
+
+
+def _fallback_stay_dates(lines: Iterable[str]) -> list[tuple[int, date]]:
+    """Exclude cancellation sections before considering unlabelled date evidence."""
+    dates: list[tuple[int, date]] = []
+    in_cancellation = False
+    for index, line in enumerate(lines):
+        if re.search(_CANCELLATION_HEADINGS, line, re.I):
+            in_cancellation = True
+            continue
+        if in_cancellation and re.search(
+            r"^(?:booking property|booking url|informace o rezervaci|reservation information|"
+            r"arrival|departure|check-in|check-out|příjezd|odjezd)\b",
+            line,
+            re.I,
+        ):
+            in_cancellation = False
+        if in_cancellation or _is_cancellation_date_line(line):
+            continue
+        if parsed := parse_date(line):
+            dates.append((index, parsed))
+    return dates
+
+
+def parse_dates(lines: list[str]) -> tuple[date | None, date | None]:
+    """Backward-compatible date extraction without exposing parser evidence."""
+    check_in, check_out, _, _ = parse_dates_with_evidence(lines)
+    return check_in, check_out
 
 
 def parse_occupancy(lines: Iterable[str]) -> tuple[int | None, int | None, list[int] | None]:

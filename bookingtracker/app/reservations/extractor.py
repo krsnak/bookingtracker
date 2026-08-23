@@ -6,7 +6,7 @@ from app.reservations.deterministic_parser import (
     clean_lines,
     parse_booking_url,
     parse_cancellation,
-    parse_dates,
+    parse_dates_with_evidence,
     parse_meal_facts,
     parse_nights,
     parse_occupancy,
@@ -25,7 +25,19 @@ class ReservationExtractor:
 
     def extract(self, source_text: str) -> ReservationCandidate:
         lines = clean_lines(source_text)
-        check_in, check_out = parse_dates(lines)
+        check_in, check_out, date_warnings, date_validation_errors = parse_dates_with_evidence(
+            lines
+        )
+        # Keep Pydantic's date invariant as a final guard, but never allow
+        # parser evidence to turn an expected import error into an HTTP 500.
+        if check_in and check_out and check_out <= check_in:
+            check_in = None
+            check_out = None
+            date_warnings.append("Nekonzistentní data pobytu byla odmítnuta.")
+            date_validation_errors.append(
+                "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu. "
+                "Zkontrolujte vložené potvrzení."
+            )
         adults, children, children_ages = parse_occupancy(lines)
         rooms_count, room_type, rooms_breakdown = parse_room(lines)
         price, warnings, ambiguous = parse_prices(lines)
@@ -67,13 +79,13 @@ class ReservationExtractor:
             source_text=sanitize_source_text(source_text),
             extraction_confidence=confidence,
             field_confidence=field_confidence,
-            warnings=warnings,
+            warnings=warnings + date_warnings,
             ambiguous_fields=ambiguous,
         )
         validation = validate_activation(validation_seed)
         return validation_seed.model_copy(
             update={
                 "missing_critical_fields": validation.missing_fields,
-                "validation_errors": validation.errors,
+                "validation_errors": validation.errors + date_validation_errors,
             }
         )

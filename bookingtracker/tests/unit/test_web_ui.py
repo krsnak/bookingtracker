@@ -11,7 +11,7 @@ import pytest
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
-from app.reservations.models import Reservation
+from app.reservations.models import Reservation, ReservationCandidate
 from app.web.app import create_app, static_asset_revision
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -114,6 +114,65 @@ def test_browser_alerts_and_validation_error_render(tmp_path) -> None:  # noqa: 
         )
         assert response.status_code == 200
         assert "Required fields are missing" in invalid.text
+
+
+def test_invalid_import_dates_render_safe_review_and_cannot_be_saved(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    raw_text = (
+        "Property: Safe Hotel\n2026-09-06\n2026-09-05\n2 adults\n"
+        "Economy Triple Room\nTotal price EUR 18.88\nPIN: synthetic-pin"
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract",
+            data={"csrf_token": app.state.csrf, "source_text": raw_text},
+        )
+        assert response.status_code == 200
+        assert "Review reservation" in response.text
+        assert "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu." in response.text
+        assert "synthetic-pin" not in response.text
+        token = next(key for key in app.state.pending)
+        saved = client.post(
+            "/reservations/save",
+            data={
+                "csrf_token": app.state.csrf,
+                "token": token,
+                "property_name": "Safe Hotel",
+                "booking_url": "https://www.booking.com/hotel/test/safe.html",
+            },
+        )
+        assert saved.status_code == 200
+        assert "Required fields are missing" in saved.text
+        assert app.state.reservations.list_active() == []
+
+
+def test_web_catches_expected_pydantic_extraction_validation_without_echoing_input(
+    tmp_path,
+) -> None:  # noqa: ANN001
+    class InvalidExtractor:
+        def extract(self, source_text: str) -> ReservationCandidate:
+            return ReservationCandidate(
+                check_in=date(2026, 9, 5),
+                check_out=date(2026, 9, 5),
+                source_text=source_text,
+                extraction_confidence=0,
+            )
+
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    app.state.extractor = InvalidExtractor()
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract",
+            data={"csrf_token": app.state.csrf, "source_text": "PIN: synthetic-pin"},
+        )
+
+    assert response.status_code == 422
+    assert "Nepodařilo se spolehlivě vytěžit potvrzení." in response.text
+    assert "synthetic-pin" not in response.text
 
 
 def test_notification_test_uses_saved_entity_with_ingress_prg_and_no_side_effects(tmp_path) -> None:  # noqa: ANN001,E501

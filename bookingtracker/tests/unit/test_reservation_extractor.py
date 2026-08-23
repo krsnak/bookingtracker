@@ -149,3 +149,51 @@ def test_extracts_full_czech_gmail_markdown_without_persisting_mail_metadata() -
         "Není vybrána žádná položka"
         in (FIXTURES / "booking_czech_full_gmail_markdown_confirmation.txt").read_text()
     )
+
+
+def test_rejects_reversed_or_equal_unlabelled_dates_without_raising_validation_error() -> None:
+    for check_in, check_out in (("2026-09-06", "2026-09-05"), ("2026-09-05", "2026-09-05")):
+        candidate = ReservationExtractor().extract(
+            "Property: Safe Hotel\n"
+            f"{check_in}\n{check_out}\n2 adults\nEconomy Triple Room\nTotal price EUR 18.88\n"
+            "PIN: synthetic-pin"
+        )
+
+        assert candidate.check_in is None
+        assert candidate.check_out is None
+        assert not candidate.can_activate
+        assert candidate.validation_errors == [
+            "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu. "
+            "Zkontrolujte vložené potvrzení."
+        ]
+        assert "synthetic-pin" not in candidate.source_text
+
+
+def test_keeps_only_safe_partial_explicit_stay_date() -> None:
+    check_in_only = ReservationExtractor().extract(
+        "Property: Safe Hotel\nPříjezd: 5. září 2026\n2 dospělí\n1 noc, Economy Triple Room\n"
+        "Celková cena: EUR 18.88"
+    )
+    check_out_only = ReservationExtractor().extract(
+        "Property: Safe Hotel\nOdjezd: 6. září 2026\n2 dospělí\n1 noc, Economy Triple Room\n"
+        "Celková cena: EUR 18.88"
+    )
+
+    assert check_in_only.check_in == date(2026, 9, 5)
+    assert check_in_only.check_out is None
+    assert check_out_only.check_in is None
+    assert check_out_only.check_out == date(2026, 9, 6)
+    assert not check_in_only.can_activate
+    assert not check_out_only.can_activate
+
+
+def test_explicit_dates_win_over_conflicting_teaser_date() -> None:
+    candidate = ReservationExtractor().extract(
+        "Property: Safe Hotel\nUbytování Safe Hotel vás bude očekávat 4. září 2026.\n"
+        "Příjezd: 5. září 2026\nOdjezd: 6. září 2026\n2 dospělí\n"
+        "1 noc, Economy Triple Room\nCelková cena: EUR 18.88"
+    )
+
+    assert candidate.check_in == date(2026, 9, 5)
+    assert candidate.check_out == date(2026, 9, 6)
+    assert any("Explicitní data pobytu" in warning for warning in candidate.warnings)

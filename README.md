@@ -180,7 +180,8 @@ Explicit arrival/departure labels outrank cancellation dates, and repeated
 equal section facts are not treated as a conflict. Only a canonical Booking
 hotel link is retained; Gmail, mailto, image, confirmation, and payment links
 are removed before the pasted text is persisted. Unknown meal facts remain
-unknown.
+unknown. Ambiguous, equal, or reversed stay dates remain unknown and block
+activation rather than being silently reordered.
 
 ## Security
 

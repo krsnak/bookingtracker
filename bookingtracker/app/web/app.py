@@ -206,7 +206,7 @@ def create_app(
     def url_for_request(request: Request, name: str, **params: str) -> str:
         return f"{_request_prefix(request, base_path)}{app.url_path_for(name, **params)}"
 
-    def render(request: Request, name: str, **context: object):
+    def render(request: Request, name: str, *, status_code: int = 200, **context: object):
         def static_url(path: str) -> str:
             asset_url = url_for_request(request, "static", path=path)
             if path == "app.css":
@@ -222,6 +222,7 @@ def create_app(
                 "csrf": app.state.csrf,
                 **context,
             },
+            status_code=status_code,
         )
 
     def csrf(token: str) -> None:
@@ -311,7 +312,18 @@ def create_app(
     @app.post("/reservations/extract", name="extract_reservation")
     def extract_reservation(request: Request, source_text: str = Form(), csrf_token: str = Form()):
         csrf(csrf_token)
-        candidate = app.state.extractor.extract(source_text)
+        try:
+            candidate = app.state.extractor.extract(source_text)
+        except ValidationError:
+            return render(
+                request,
+                "new.html",
+                status_code=422,
+                error=(
+                    "Nepodařilo se spolehlivě vytěžit potvrzení. "
+                    "Zkontrolujte vložené údaje a zkuste to znovu."
+                ),
+            )
         token = secrets.token_urlsafe(12)
         app.state.pending[token] = candidate
         return render(request, "review.html", candidate=candidate, token=token)
