@@ -11,6 +11,7 @@ import pytest
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
+from app.reservations.import_document import ImportDocumentSource, ReservationImportDocument
 from app.reservations.models import Reservation, ReservationCandidate
 from app.web.app import create_app, static_asset_revision
 from fastapi.testclient import TestClient
@@ -125,6 +126,43 @@ def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tm
         )
         assert saved.status_code == 303
         assert app.state.reservations.list_active()[0].nights == 1
+
+
+def test_pdf_upload_pipeline_renders_sahara_candidate_and_responsive_review(tmp_path, monkeypatch) -> None:  # noqa: ANN001,E501
+    from app.web import app as web_app
+
+    fixture_path = Path(__file__).parents[1] / "fixtures" / "booking_sahara_sands_synthetic.txt"
+    fixture = fixture_path.read_text()
+    document = ReservationImportDocument(
+        text=fixture,
+        uris=["https://www.booking.com/hotel/ma/diamant-sahara-camp.html"],
+        source=ImportDocumentSource.PDF,
+    )
+    monkeypatch.setattr(web_app, "pdf_document", lambda _bytes: document)
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract/pdf",
+            data={"csrf_token": app.state.csrf},
+            files={"pdf": ("confirmation.pdf", b"%PDF-synthetic", "application/pdf")},
+        )
+        candidate = next(iter(app.state.pending.values()))
+        assert candidate.property_name == "Sahara Sands Hotel"
+        assert candidate.check_in == date(2026, 9, 12) and candidate.check_out == date(2026, 9, 14)
+        assert candidate.nights == 2 and candidate.children is None and candidate.vat is None
+        assert candidate.free_cancellation is True
+        assert str(candidate.cancellation_deadline) == "2026-09-06 23:59:00"
+        assert candidate.booked_base_price == Decimal("57.94")
+        assert candidate.taxes_and_fees == Decimal("1.74")
+        assert candidate.booked_total_price == Decimal("59.68")
+        assert "Sahara Sands Hotel" in response.text and "Rozpoznáno" in response.text
+        assert "Booking URL:" not in response.text
+    css = (Path(__file__).parents[2] / "app" / "web" / "static" / "app.css").read_text()
+    assert "max-width:1100px" in css and "repeat(2,minmax(0,1fr))" in css
+    assert "@media(max-width:699px){section{grid-template-columns:1fr}}" in css
+    assert "style=" not in response.text
 
 
 def test_browser_alerts_and_validation_error_render(tmp_path) -> None:  # noqa: ANN001

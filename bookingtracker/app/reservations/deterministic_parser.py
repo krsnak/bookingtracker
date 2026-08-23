@@ -229,17 +229,18 @@ def _property_candidates(lines: list[str]) -> list[tuple[str, int]]:
                     and not candidate.casefold().startswith("booking property:")
                 ):
                     add(candidate, 100)
-    for line in lines:
-        match = re.search(r"\baccommodation\s+(.+?)\s+will be waiting for you\b", line, re.I)
+    for index, _line in enumerate(lines):
+        evidence = " ".join(lines[index : index + 3])
+        match = re.search(r"\baccommodation\s+(.+?)\s+will be waiting for you\b", evidence, re.I)
         if match:
             add(match.group(1), 95)
-        match = re.search(r"\bubytování\s+(.+?)\s+vás bude očekávat\b", line, re.I)
+        match = re.search(r"\bubytování\s+(.+?)\s+vás bude očekávat\b", evidence, re.I)
         if match:
             add(match.group(1), 95)
         title = re.search(
             r"^PDF title:\s*(?:Gmail\s*-\s*)?.*?([A-Z][^-–—]+?)\s*"
             r"[–—-]\s*(?:Děkujeme|Thank)",
-            line,
+            evidence,
             re.I,
         )
         if title:
@@ -280,7 +281,12 @@ def _is_property_name(value: str) -> bool:
         value
         and value.casefold() not in _PROPERTY_UI_TEXT
         and value.casefold() not in _PROPERTY_CTA_TEXT
-        and not re.search(r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:)", value, re.I)
+        and len(value) <= 100
+        and not re.search(
+            r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:|zrušit|storno|cena)",
+            value,
+            re.I,
+        )
     )
 
 
@@ -526,7 +532,8 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
             pass
     if deadline is None:
         czech = re.search(
-            r"(?:zdarma do|bezplatné zrušení(?: rezervace)?\s+do)\s+(\d{1,2})\.\s*"
+            r"(?:zdarma do|bezplatné zrušení(?: rezervace)?\s+do|"
+            r"rezervaci můžete zrušit zdarma do)\s+(\d{1,2})\.\s*"
             r"([A-Za-záčďéěíňóřšťúůýž]+)\s+(\d{4})\s+(\d{1,2}):(\d{2})",
             text,
             re.I,

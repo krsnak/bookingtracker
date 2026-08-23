@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- Fixed split-line Czech cancellation evidence and consolidated strong PDF property aliases into the final property.
+- Widened the responsive Czech review layout with a desktop grid and mobile single-column fallback.
+
 ## 0.4.1
 
 - Fixed PDF property evidence scoring so generic Gmail/Booking calls to action cannot become a hotel name.

@@ -3,6 +3,10 @@
 Version 0.4.1 fixes property evidence scoring for Gmail-exported PDFs and presents recognized
 reservation facts as Czech read-only summaries until the user chooses to correct them.
 
+Version 0.4.2 consolidates strong PDF property evidence after extraction and supports Czech
+split-line cancellation text. The responsive review remains local-only; no real confirmation PDF
+or personal data is stored in the repository.
+
 Version 0.4.0 adds a preferred Booking confirmation PDF import. The local service extracts
 text and safe canonical Booking hotel links only in memory; copy-paste confirmation text
 remains available as a fallback and every critical extracted field is reviewable before save.

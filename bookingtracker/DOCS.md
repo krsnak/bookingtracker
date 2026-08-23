@@ -6,6 +6,10 @@ Version `0.4.1` ranks property evidence rather than accepting generic CTA text. 
 shows recognized facts as read-only Czech summaries with an explicit **Upravit** control; missing
 or ambiguous facts are opened for completion. Server-side typed validation remains mandatory.
 
+Version `0.4.2` consolidates the strongest named property evidence and accepts PDF line breaks in
+Czech cancellation clauses. The wider two-column review collapses to one column on mobile; real
+PDF files and personal data remain outside the repository.
+
 Version `0.4.0` introduces the preferred in-memory PDF confirmation import. PDF and text
 use one deterministic Czech/English pipeline; PDFs are limited to 10 MB and 20 pages and
 are never persisted. Text paste remains the fallback. The review screen now permits

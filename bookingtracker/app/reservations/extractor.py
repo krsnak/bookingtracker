@@ -55,6 +55,14 @@ class ReservationExtractor:
         cancellation_text, free_cancellation, cancellation_deadline = parse_cancellation(lines)
         meal_plan, breakfast_included = parse_meal_facts(lines)
         property_name = parse_property_name(lines)
+        property_aliases = parse_property_aliases(lines, property_name)
+        # Consolidate the strongest named hotel evidence after every parser stage.
+        weak_property = property_name is None or (
+            bool(property_aliases) and len(property_name) > len(property_aliases[0]) * 2
+        )
+        if property_aliases and weak_property:
+            previous = [property_name] if property_name else []
+            property_name, property_aliases = property_aliases[0], previous
         field_values = {
             "property_name": property_name,
             "booking_url": (document.uris[0] if document.uris else parse_booking_url(lines)),
@@ -78,7 +86,7 @@ class ReservationExtractor:
                 if document.source is ImportDocumentSource.PDF
                 else ReservationSource.PASTED_BOOKING_CONFIRMATION
             ),
-            property_aliases=parse_property_aliases(lines, property_name),
+            property_aliases=property_aliases,
             nights=parse_nights(lines),
             children=children,
             children_ages=children_ages,
