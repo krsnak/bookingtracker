@@ -33,3 +33,6 @@ Notification settings, then use **Send test notification**. The diagnostic uses
 the configured production HA adapter but creates no price check, alert, or
 deduplication state. Its one-time result is shown after redirecting back to
 Settings. Phase 10 remains pending until this button is verified on the Pi.
+
+The Home Assistant REST service call uses top-level `entity_id`, `title`, and
+`message` fields for `notify.send_message`.

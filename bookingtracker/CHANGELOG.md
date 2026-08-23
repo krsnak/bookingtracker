@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+Fix Home Assistant Core REST `notify.send_message` payloads to use top-level
+`entity_id`, `title`, and `message`, rather than action/YAML-style nesting.
+
 ## 0.3.1
 
 Add an Ingress-safe, CSRF-protected Settings diagnostic that sends a clearly

@@ -42,10 +42,12 @@ class HomeAssistantNotificationAdapter:
         self.transport(
             "/services/notify/send_message",
             {
-                "target": {"entity_id": entity_id},
-                "data": {"title": title, "message": message},
+                "entity_id": entity_id,
+                "title": title,
+                "message": message,
             },
         )
+
     @staticmethod
     def _request(path: str, payload: dict[str, object]) -> None:
         token = os.environ.get("SUPERVISOR_TOKEN")

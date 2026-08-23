@@ -146,12 +146,10 @@ def test_notification_test_uses_saved_entity_with_ingress_prg_and_no_side_effect
             (
                 "/services/notify/send_message",
                 {
-                    "target": {"entity_id": "notify.roman"},
-                    "data": {
-                        "title": "✅ BookingTracker test",
-                        "message": "Home Assistant notification adapter is working.\n"
-                        "This is a test message; no price drop was detected.",
-                    },
+                    "entity_id": "notify.roman",
+                    "title": "✅ BookingTracker test",
+                    "message": "Home Assistant notification adapter is working.\n"
+                    "This is a test message; no price drop was detected.",
                 },
             )
         ]

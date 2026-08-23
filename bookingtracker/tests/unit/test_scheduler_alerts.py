@@ -195,7 +195,7 @@ def test_percentage_bands_and_threshold_change_are_persisted_without_replay(tmp_
     )
 
 
-def test_home_assistant_notify_payload_uses_generic_entity() -> None:
+def test_home_assistant_notify_rest_payload_uses_top_level_entity_and_message() -> None:
     captured: list[tuple[str, dict[str, object]]] = []
     adapter = HomeAssistantNotificationAdapter(
         "notify.telegram_bot_roman",
@@ -214,11 +214,14 @@ def test_home_assistant_notify_payload_uses_generic_entity() -> None:
         (
             "/services/notify/send_message",
             {
-                "target": {"entity_id": "notify.telegram_bot_roman"},
-                "data": {"title": "Price drop", "message": "Safe message"},
+                "entity_id": "notify.telegram_bot_roman",
+                "title": "Price drop",
+                "message": "Safe message",
             },
         )
     ]
+    assert "target" not in captured[0][1]
+    assert "data" not in captured[0][1]
 
 
 def test_scheduler_persists_due_state_skips_inactive_or_expired_and_backs_off(tmp_path) -> None:  # noqa: ANN001
