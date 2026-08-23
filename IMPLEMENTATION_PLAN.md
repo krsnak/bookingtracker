@@ -1,5 +1,12 @@
 # Implementation plan
 
+## Import phase 0.4.0
+
+Implemented the shared PDF/text reservation import boundary, Czech/English deterministic
+extraction, canonical hotel annotation selection, and complete review editing. This phase still
+requires one real Gmail-exported Booking PDF test on the Raspberry Pi before it can be called
+production-complete.
+
 ## Status
 
 Phases 0–10 are complete. The architecture supports macOS development and

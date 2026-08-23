@@ -134,4 +134,10 @@ MIGRATIONS: list[tuple[int, str]] = [
         );
         """,
     ),
+    (
+        4,
+        """
+        ALTER TABLE reservations ADD COLUMN property_aliases_json TEXT NOT NULL DEFAULT '[]';
+        """,
+    ),
 ]

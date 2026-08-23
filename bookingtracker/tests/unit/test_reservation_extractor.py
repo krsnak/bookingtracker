@@ -63,6 +63,26 @@ def test_extracts_format_variation_and_leaves_unknowns_null() -> None:
     assert candidate.can_activate
 
 
+def test_extracts_english_confirmation_without_treating_destination_as_property() -> None:
+    candidate = extract_fixture("booking_english_confirmation.txt")
+
+    assert candidate.property_name == "Fakir Inn"
+    assert candidate.property_aliases == ["Zajazd Fakir"]
+    assert candidate.booking_url == "https://www.booking.com/hotel/pl/zajazd-fakir.html"
+    assert candidate.check_in == date(2026, 8, 25)
+    assert candidate.check_out == date(2026, 8, 26)
+    assert candidate.nights == 1
+    assert candidate.room_type == "Standard Twin Room"
+    assert candidate.adults == 2 and candidate.children is None
+    assert candidate.breakfast_included is False and candidate.meal_plan == "No meals included"
+    assert candidate.cancellation_deadline == datetime(2026, 8, 25, 14)
+    assert candidate.booked_base_price == Decimal("194.44")
+    assert candidate.vat == Decimal("15.56") and candidate.city_tax == Decimal("10.00")
+    assert candidate.booked_total_price == Decimal("220.00")
+    assert candidate.booked_payable_price == Decimal("220.00")
+    assert candidate.payment_conditions == "Booking automatically charges card"
+
+
 def test_flags_competing_totals_and_does_not_block_reviewable_critical_data() -> None:
     candidate = extract_fixture("ambiguous_confirmation.txt")
 

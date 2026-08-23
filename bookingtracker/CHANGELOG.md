@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- Added a shared, deterministic text/PDF reservation-import pipeline with a Czech/English Booking lexicon.
+- Added in-memory PDF confirmation upload with signature, 10 MB and 20-page limits, active-content rejection, and canonical hotel URI extraction.
+- Made the review form editable for all critical reservation and price facts.
+
 ## 0.3.6
 
 Reject ambiguous, reversed, or equal imported stay dates before Pydantic model

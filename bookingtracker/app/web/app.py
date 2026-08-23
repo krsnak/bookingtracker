@@ -7,13 +7,23 @@ import asyncio
 import hashlib
 import secrets
 from contextlib import asynccontextmanager, suppress
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -45,6 +55,7 @@ from app.matching.matcher import ExactReservationMatcher
 from app.pricing.check_service import PriceCheckService
 from app.pricing.service import ComparablePriceService
 from app.reservations.extractor import ReservationExtractor
+from app.reservations.import_document import ImportDocumentError, pdf_document
 from app.reservations.models import Reservation
 from app.scheduling.models import CheckTrigger
 from app.scheduling.policy import SchedulePolicy
@@ -328,28 +339,76 @@ def create_app(
         app.state.pending[token] = candidate
         return render(request, "review.html", candidate=candidate, token=token)
 
+    @app.post("/reservations/extract/pdf", name="extract_reservation_pdf")
+    async def extract_reservation_pdf(
+        request: Request,
+        pdf: Annotated[UploadFile, File()],
+        csrf_token: Annotated[str, Form()],
+    ):
+        csrf(csrf_token)
+        try:
+            # Read at most one byte beyond the limit: uploads never reach disk or /data.
+            from app.reservations.import_document import MAX_PDF_BYTES
+
+            contents = await pdf.read(MAX_PDF_BYTES + 1)
+            candidate = app.state.extractor.extract_document(pdf_document(contents))
+        except (ImportDocumentError, ValidationError):
+            return render(
+                request,
+                "new.html",
+                status_code=422,
+                error="PDF potvrzení nelze bezpečně zpracovat.",
+            )
+        finally:
+            await pdf.close()
+        token = secrets.token_urlsafe(12)
+        app.state.pending[token] = candidate
+        return render(request, "review.html", candidate=candidate, token=token)
+
     @app.post("/reservations/save", name="save_reservation")
-    def save_reservation(
+    async def save_reservation(
         request: Request,
         token: str = Form(),
-        property_name: str = Form(""),
-        booking_url: str = Form(""),
-        price_drop_threshold_percent: str = Form(""),
         csrf_token: str = Form(),
     ):
         csrf(csrf_token)
-        candidate = app.state.pending.pop(token, None)
+        candidate = app.state.pending.get(token)
         if candidate is None:
             raise HTTPException(400, "Review session expired; extract the confirmation again.")
-        candidate = candidate.model_copy(
-            update={
-                "property_name": property_name or None,
-                "booking_url": booking_url or None,
-                "price_drop_threshold_percent": Decimal(price_drop_threshold_percent)
-                if price_drop_threshold_percent
-                else None,
+        form = await request.form()
+        def value(name: str) -> str | None:
+            raw = str(form.get(name, "")).strip()
+            return raw or None
+        def integer(name: str) -> int | None:
+            raw = value(name)
+            return int(raw) if raw else None
+        def money(name: str) -> Decimal | None:
+            raw = value(name)
+            return Decimal(raw) if raw else None
+        try:
+            data = candidate.model_dump() | {
+                "property_name": value("property_name"), "booking_url": value("booking_url"),
+                "check_in": date.fromisoformat(value("check_in")) if value("check_in") else None,
+                "check_out": date.fromisoformat(value("check_out")) if value("check_out") else None,
+                "nights": integer("nights"), "adults": integer("adults"), "children": integer("children"),
+                "rooms_count": integer("rooms_count"), "room_type": value("room_type"),
+                "meal_plan": value("meal_plan"),
+                "breakfast_included": {"yes": True, "no": False}.get(value("breakfast_included") or ""),
+                "free_cancellation": {"yes": True, "no": False}.get(value("free_cancellation") or ""),
+                "cancellation_text": value("cancellation_text"),
+                "cancellation_deadline": datetime.fromisoformat(value("cancellation_deadline")) if value("cancellation_deadline") else None,
+                "payment_conditions": value("payment_conditions"), "currency": value("currency"),
+                "booked_total_price": money("booked_total_price"), "booked_payable_price": money("booked_payable_price"),
+                "booked_base_price": money("booked_base_price"), "taxes_and_fees": money("taxes_and_fees"),
+                "vat": money("vat"), "city_tax": money("city_tax"),
+                "price_drop_threshold_percent": money("price_drop_threshold_percent"),
             }
-        )
+            candidate = candidate.__class__.model_validate(data)
+        except (ValidationError, ValueError, ArithmeticError):
+            return render(request, "review.html", candidate=candidate, token=token, error="Neplatné údaje ve formuláři.")
+        from app.reservations.validator import validate_activation
+        validation = validate_activation(candidate)
+        candidate = candidate.model_copy(update={"missing_critical_fields": validation.missing_fields, "validation_errors": validation.errors})
         if not candidate.can_activate:
             return render(
                 request,
@@ -358,6 +417,7 @@ def create_app(
                 token=token,
                 error="Required fields are missing.",
             )
+        app.state.pending.pop(token, None)
         saved = reservations.create(Reservation(**candidate.model_dump(), active=True))
         return RedirectResponse(
             url_for_request(request, "reservation_detail", reservation_id=str(saved.id)),

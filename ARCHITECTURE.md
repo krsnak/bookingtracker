@@ -1,5 +1,13 @@
 # BookingTracker architecture
 
+## 0.4.0 import phase
+
+`ReservationImportDocument` is the single boundary between untrusted text/PDF input and the
+deterministic reservation extractor. The PDF adapter uses `pypdf` in memory only, limits input
+to 10 MB/20 pages, rejects encrypted or active-content PDFs, and retains only normalized text
+plus canonical HTTPS `/hotel/...` Booking URLs. Canonical URL is property identity evidence;
+property-name aliases are review evidence and never weaken the exact matcher.
+
 BookingTracker is a local, single-user tool that tracks the price of an
 existing Booking.com reservation. It is developed on macOS and deployed as a
 Home Assistant add-on on a Raspberry Pi 4 (aarch64). Its governing invariant is

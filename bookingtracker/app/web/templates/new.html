@@ -1,1 +1,7 @@
-{% extends "base.html" %}{% block content %}<h1>Add reservation</h1>{% if error %}<p class="error">{{ error }}</p>{% endif %}<form method="post" action="{{ url('extract_reservation') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label for="source_text">Paste Booking.com reservation confirmation</label><textarea id="source_text" name="source_text" required></textarea><button>Extract reservation</button></form>{% endblock %}
+{% extends "base.html" %}{% block content %}
+<h1>Add reservation</h1>{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<h2>Upload Booking confirmation PDF</h2><p>Preferred: Gmail → Print → Save as PDF. The file is processed only in memory.</p>
+<form method="post" enctype="multipart/form-data" action="{{ url('extract_reservation_pdf') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Booking confirmation PDF <input type="file" name="pdf" accept="application/pdf,.pdf" required></label><button>Extract PDF</button></form>
+<h2>Paste confirmation text</h2><p>Fallback when a PDF is unavailable.</p>
+<form method="post" action="{{ url('extract_reservation') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label for="source_text">Paste Booking.com reservation confirmation</label><textarea id="source_text" name="source_text" required></textarea><button>Extract reservation</button></form>
+{% endblock %}

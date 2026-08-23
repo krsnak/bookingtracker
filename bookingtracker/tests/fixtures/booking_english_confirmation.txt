@@ -1,0 +1,24 @@
+Booking.com
+Fakir Inn
+Booking information
+Arrival: Tuesday, August 25, 2026
+Departure: Wednesday, August 26, 2026
+Your reservation
+1 night, Standard Twin Room
+Reservations for: 2 adults
+Accommodation Zajazd Fakir will be waiting for you
+Cancellation conditions
+Free cancellation until August 25, 2026 14:00
+Cancellation fee: 100% of the total after the deadline
+Dining
+Meals are not included in the room rate
+Price information
+1 Standard Twin Room PLN 194.44
+VAT PLN 15.56
+City tax PLN 10.00
+Total price PLN 220.00
+Payment information
+Total future payments PLN 220.00
+Total paid PLN 0
+Booking automatically charges card
+Booking URL: https://www.booking.com/hotel/pl/zajazd-fakir.html?label=discard

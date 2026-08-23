@@ -1,6 +1,11 @@
 # BookingTracker
 
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
+
+Version `0.4.0` introduces the preferred in-memory PDF confirmation import. PDF and text
+use one deterministic Czech/English pipeline; PDFs are limited to 10 MB and 20 pages and
+are never persisted. Text paste remains the fallback. The review screen now permits
+explicit correction of every critical fact before activation.
 Ingress serves the UI; no ports are published. Version `0.2.4` completed Phase
 9 real-Pi production validation. On Home Assistant, Chromium starts headful in
 private Xvfb; noVNC is available only through authenticated Ingress and only

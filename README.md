@@ -1,5 +1,9 @@
 # BookingTracker
 
+Version 0.4.0 adds a preferred Booking confirmation PDF import. The local service extracts
+text and safe canonical Booking hotel links only in memory; copy-paste confirmation text
+remains available as a fallback and every critical extracted field is reviewable before save.
+
 BookingTracker is a personal, local Booking.com reservation price tracker. It
 tracks the exact reservation you already hold and compares only equivalent—or
 explicitly labelled better—Booking.com offers. It does not look for the

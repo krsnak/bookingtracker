@@ -12,6 +12,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class ReservationSource(StrEnum):
     PASTED_BOOKING_CONFIRMATION = "pasted_booking_confirmation"
+    BOOKING_CONFIRMATION_PDF = "booking_confirmation_pdf"
+
+
+class ImportDocumentSource(StrEnum):
+    TEXT = "text"
+    PDF = "pdf"
 
 
 class FieldConfidence(StrEnum):
@@ -49,6 +55,7 @@ class ReservationDraft(BaseModel):
     source: ReservationSource = ReservationSource.PASTED_BOOKING_CONFIRMATION
     property_name: str | None = None
     booking_url: str | None = None
+    property_aliases: list[str] = Field(default_factory=list)
     check_in: date | None = None
     check_out: date | None = None
     nights: int | None = Field(default=None, ge=1)

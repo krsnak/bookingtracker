@@ -95,6 +95,7 @@ class ReservationRepository:
             "source",
             "property_name",
             "booking_url",
+            "property_aliases_json",
             "check_in",
             "check_out",
             "nights",
@@ -134,6 +135,7 @@ class ReservationRepository:
             "source": reservation.source.value,
             "property_name": reservation.property_name,
             "booking_url": reservation.booking_url,
+            "property_aliases_json": _json(reservation.property_aliases),
             "check_in": reservation.check_in.isoformat() if reservation.check_in else None,
             "check_out": reservation.check_out.isoformat() if reservation.check_out else None,
             "nights": reservation.nights,
@@ -192,6 +194,7 @@ class ReservationRepository:
                 data[name] = Decimal(data[name])
         data.update(
             id=UUID(data["id"]),
+            property_aliases=json.loads(data.pop("property_aliases_json") or "[]"),
             children_ages=json.loads(data.pop("children_ages_json"))
             if data.get("children_ages_json")
             else None,

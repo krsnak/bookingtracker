@@ -12,11 +12,18 @@ from app.reservations.deterministic_parser import (
     parse_occupancy,
     parse_payment_conditions,
     parse_prices,
+    parse_property_aliases,
     parse_property_name,
     parse_room,
     sanitize_source_text,
 )
-from app.reservations.models import FieldConfidence, ReservationCandidate
+from app.reservations.import_document import ReservationImportDocument, text_document
+from app.reservations.models import (
+    FieldConfidence,
+    ImportDocumentSource,
+    ReservationCandidate,
+    ReservationSource,
+)
 from app.reservations.validator import validate_activation
 
 
@@ -24,7 +31,11 @@ class ReservationExtractor:
     """Deterministic Phase 1 extractor; semantic providers remain optional."""
 
     def extract(self, source_text: str) -> ReservationCandidate:
-        lines = clean_lines(source_text)
+        return self.extract_document(text_document(source_text))
+
+    def extract_document(self, document: ReservationImportDocument) -> ReservationCandidate:
+        """Extract text and PDF through exactly the same deterministic path."""
+        lines = clean_lines(document.text)
         check_in, check_out, date_warnings, date_validation_errors = parse_dates_with_evidence(
             lines
         )
@@ -43,9 +54,10 @@ class ReservationExtractor:
         price, warnings, ambiguous = parse_prices(lines)
         cancellation_text, free_cancellation, cancellation_deadline = parse_cancellation(lines)
         meal_plan, breakfast_included = parse_meal_facts(lines)
+        property_name = parse_property_name(lines)
         field_values = {
-            "property_name": parse_property_name(lines),
-            "booking_url": parse_booking_url(lines),
+            "property_name": property_name,
+            "booking_url": (document.uris[0] if document.uris else parse_booking_url(lines)),
             "check_in": check_in,
             "check_out": check_out,
             "adults": adults,
@@ -61,6 +73,12 @@ class ReservationExtractor:
         confidence = sum(value is not None for value in field_values.values()) / len(field_values)
         validation_seed = ReservationCandidate(
             **field_values,
+            source=(
+                ReservationSource.BOOKING_CONFIRMATION_PDF
+                if document.source is ImportDocumentSource.PDF
+                else ReservationSource.PASTED_BOOKING_CONFIRMATION
+            ),
+            property_aliases=parse_property_aliases(lines, property_name),
             nights=parse_nights(lines),
             children=children,
             children_ages=children_ages,
@@ -76,10 +94,10 @@ class ReservationExtractor:
             vat=price.vat,
             city_tax=price.city_tax,
             payment_conditions=parse_payment_conditions(lines),
-            source_text=sanitize_source_text(source_text),
+            source_text=sanitize_source_text(document.text),
             extraction_confidence=confidence,
             field_confidence=field_confidence,
-            warnings=warnings + date_warnings,
+            warnings=warnings + date_warnings + document.warnings,
             ambiguous_fields=ambiguous,
         )
         validation = validate_activation(validation_seed)
