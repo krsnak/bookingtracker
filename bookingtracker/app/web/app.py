@@ -19,7 +19,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app.alerts.notifications import ConsoleNotificationAdapter, HomeAssistantNotificationAdapter
+from app.alerts.notifications import (
+    ConsoleNotificationAdapter,
+    HomeAssistantNotificationAdapter,
+    NotificationAdapter,
+    sanitize_notification_error,
+)
 from app.alerts.service import AlertService
 from app.booking.parser import BookingRateParser
 from app.browser.executor import ThreadBoundBookingBrowser
@@ -95,6 +100,7 @@ def create_app(
     runner: CheckRunner | None = None,
     start_browser_on_startup: bool = True,
     remote_runtime: RemoteDesktopRuntime | None = None,
+    notification_adapter: NotificationAdapter | None = None,
 ) -> FastAPI:
     base_path = "/" + base_path.strip("/") if base_path.strip("/") else ""
     resolved_paths = paths or AppPaths.from_environment()
@@ -107,6 +113,11 @@ def create_app(
     remote = remote_runtime or RemoteDesktopRuntime(RemoteDesktopSettings.from_environment(), lease)
     browser = ThreadBoundBookingBrowser(
         BookingBrowserService(BrowserSettings.development(resolved_paths))
+    )
+    notifier = notification_adapter or (
+        HomeAssistantNotificationAdapter(settings.get_notify_entity)
+        if __import__("os").environ.get("SUPERVISOR_TOKEN")
+        else ConsoleNotificationAdapter()
     )
     actual_runner = runner or CheckRunner(
         reservations,
@@ -122,9 +133,7 @@ def create_app(
         AlertService(
             alerts,
             history,
-            HomeAssistantNotificationAdapter(settings.get_notify_entity)
-            if __import__("os").environ.get("SUPERVISOR_TOKEN")
-            else ConsoleNotificationAdapter(),
+            notifier,
             settings,
             PriceDropBandStateRepository(database),
         ),
@@ -172,6 +181,8 @@ def create_app(
     app.state.history = history
     app.state.alerts = alerts
     app.state.settings = settings
+    app.state.notification_adapter = notifier
+    app.state.settings_flash: str | None = None
     app.state.browser = browser
     app.state.runner = actual_runner
     app.state.scheduler = scheduler
@@ -248,7 +259,8 @@ def create_app(
 
     @app.get("/settings", name="settings_view")
     def settings_view(request: Request):
-        return render(request, "settings.html", settings=settings)
+        flash, app.state.settings_flash = app.state.settings_flash, None
+        return render(request, "settings.html", settings=settings, flash=flash)
 
     @app.post("/settings", name="update_settings")
     def update_settings(
@@ -269,6 +281,31 @@ def create_app(
             return render(request, "settings.html", settings=settings, error=str(error))
         settings.set_price_drop_threshold(threshold)
         settings.set_notify_entity(entity or None)
+        return RedirectResponse(url_for_request(request, "settings_view"), status_code=303)
+
+    @app.post("/settings/notifications/test", name="test_notification")
+    async def test_notification(request: Request, csrf_token: str = Form("")):
+        csrf(csrf_token)
+        entity = settings.get_notify_entity()
+        adapter = app.state.notification_adapter
+        if not entity or not entity.startswith("notify."):
+            app.state.settings_flash = "A valid Home Assistant notify entity must be saved first."
+        elif not isinstance(adapter, HomeAssistantNotificationAdapter):
+            app.state.settings_flash = (
+                "Home Assistant notification delivery is unavailable in this runtime."
+            )
+        else:
+            try:
+                await asyncio.to_thread(
+                    adapter.send,
+                    "✅ BookingTracker test",
+                    "Home Assistant notification adapter is working.\n"
+                    "This is a test message; no price drop was detected.",
+                )
+            except Exception as error:
+                app.state.settings_flash = sanitize_notification_error(error)
+            else:
+                app.state.settings_flash = "Test notification sent successfully."
         return RedirectResponse(url_for_request(request, "settings_view"), status_code=303)
 
     @app.post("/reservations/extract", name="extract_reservation")

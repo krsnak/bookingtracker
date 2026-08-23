@@ -31,6 +31,9 @@ class HomeAssistantNotificationAdapter:
         self.transport = transport or self._request
 
     def deliver(self, alert: Alert) -> None:
+        self.send(alert.title, alert.message)
+
+    def send(self, title: str, message: str) -> None:
         entity_id = self.entity_id() if callable(self.entity_id) else self.entity_id
         if not entity_id:
             raise RuntimeError("Home Assistant notify entity is not configured")
@@ -40,10 +43,9 @@ class HomeAssistantNotificationAdapter:
             "/services/notify/send_message",
             {
                 "target": {"entity_id": entity_id},
-                "data": {"title": alert.title, "message": alert.message},
+                "data": {"title": title, "message": message},
             },
         )
-
     @staticmethod
     def _request(path: str, payload: dict[str, object]) -> None:
         token = os.environ.get("SUPERVISOR_TOKEN")
@@ -62,3 +64,9 @@ class HomeAssistantNotificationAdapter:
         except (HTTPError, URLError) as error:
             detail = error.code if isinstance(error, HTTPError) else error.reason
             raise RuntimeError(f"Home Assistant notify request failed: {detail}") from error
+
+
+def sanitize_notification_error(error: Exception) -> str:
+    """Return a user-safe diagnostic; never surface transport internals or secrets."""
+    _ = error
+    return "Test notification failed. Check the configured notify entity and Home Assistant logs."

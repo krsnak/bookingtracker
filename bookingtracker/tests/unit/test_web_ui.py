@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
 from app.reservations.models import Reservation
@@ -115,7 +116,104 @@ def test_browser_alerts_and_validation_error_render(tmp_path) -> None:  # noqa: 
         assert "Required fields are missing" in invalid.text
 
 
-def test_home_assistant_ingress_prefix_applies_to_links_forms_redirects_and_static(tmp_path) -> None:  # noqa: ANN001,E501
+def test_notification_test_uses_saved_entity_with_ingress_prg_and_no_side_effects(tmp_path) -> None:  # noqa: ANN001,E501
+    sent: list[tuple[str, dict[str, object]]] = []
+    adapter = HomeAssistantNotificationAdapter(
+        lambda: "notify.roman", transport=lambda path, payload: sent.append((path, payload))
+    )
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+        notification_adapter=adapter,
+    )
+    app.state.settings.set_notify_entity("notify.roman")
+    prefix = "/api/hassio_ingress/test-notification"
+    headers = {"X-Ingress-Path": prefix}
+    with TestClient(app) as client:
+        settings = client.get("/settings", headers=headers)
+        assert f'action="{prefix}/settings/notifications/test"' in settings.text
+        assert "Send test notification" in settings.text
+        assert client.post("/settings/notifications/test", headers=headers).status_code == 403
+        response = client.post(
+            "/settings/notifications/test",
+            headers=headers,
+            data={"csrf_token": app.state.csrf, "home_assistant_notify_entity": "notify.attacker"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == f"{prefix}/settings"
+        assert sent == [
+            (
+                "/services/notify/send_message",
+                {
+                    "target": {"entity_id": "notify.roman"},
+                    "data": {
+                        "title": "✅ BookingTracker test",
+                        "message": "Home Assistant notification adapter is working.\n"
+                        "This is a test message; no price drop was detected.",
+                    },
+                },
+            )
+        ]
+        result = client.get("/settings", headers=headers)
+        assert "Test notification sent successfully." in result.text
+        assert (
+            "Test notification sent successfully."
+            not in client.get("/settings", headers=headers).text
+        )
+        assert app.state.reservations.list_active() == []
+        with app.state.history.database.transaction() as connection:
+            assert connection.execute("SELECT count(*) FROM price_checks").fetchone()[0] == 0
+            assert connection.execute("SELECT count(*) FROM alerts").fetchone()[0] == 0
+            assert (
+                connection.execute("SELECT count(*) FROM price_drop_band_states").fetchone()[0] == 0
+            )
+
+
+def test_notification_test_handles_missing_invalid_and_sanitized_errors(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        missing = client.post(
+            "/settings/notifications/test",
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=True,
+        )
+        assert "valid Home Assistant notify entity must be saved" in missing.text
+        app.state.settings.set_notify_entity("bad.entity")
+        invalid = client.post(
+            "/settings/notifications/test",
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=True,
+        )
+        assert "valid Home Assistant notify entity must be saved" in invalid.text
+
+    failing = HomeAssistantNotificationAdapter(
+        lambda: "notify.roman",
+        transport=lambda path, payload: (_ for _ in ()).throw(
+            RuntimeError("http://user:secret@example.invalid?token=secret")
+        ),
+    )
+    app = create_app(
+        paths=AppPaths(tmp_path / "other-data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+        notification_adapter=failing,
+    )
+    app.state.settings.set_notify_entity("notify.roman")
+    with TestClient(app) as client:
+        failed = client.post(
+            "/settings/notifications/test",
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=True,
+        )
+        assert "Test notification failed." in failed.text
+        assert "user:secret@example.invalid" not in failed.text
+
+
+def test_home_assistant_ingress_prefix_applies_to_links_forms_redirects_and_static(
+    tmp_path,
+) -> None:  # noqa: ANN001,E501
     """HA strips the path before proxying and supplies it in X-Ingress-Path."""
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
@@ -224,13 +322,9 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
             with client.websocket_connect("/browser/remote/novnc/websockify"):
                 pass
         assert denied_socket.value.code == 1008
-        denied_open = client.post(
-            "/browser/remote/open", data={"csrf_token": app.state.csrf}
-        )
+        denied_open = client.post("/browser/remote/open", data={"csrf_token": app.state.csrf})
         assert denied_open.status_code == 403
-        assert (
-            client.post("/browser/remote/open", headers=headers, data={}).status_code == 403
-        )
+        assert client.post("/browser/remote/open", headers=headers, data={}).status_code == 403
 
         runtime.active = True
         remote = client.get("/browser/remote", headers=headers)
@@ -251,9 +345,7 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
         assert websocket_path.count(prefix.lstrip("/")) == 1
         assert not websocket_path.startswith("/")
         simulated_url = "wss://ha.local/" + websocket_path
-        assert simulated_url == (
-            f"wss://ha.local{prefix}/browser/remote/novnc/websockify"
-        )
+        assert simulated_url == (f"wss://ha.local{prefix}/browser/remote/novnc/websockify")
         routes = app.router.routes
         websocket_index = next(
             index

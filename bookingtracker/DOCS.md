@@ -27,3 +27,9 @@ better matches can notify. Home Assistant owns Telegram secrets; BookingTracker
 uses a general configured `notify.*` entity through the supported internal Core
 API proxy. Delivery failures preserve alerts and checks with sanitized errors
 for retry.
+
+On a Home Assistant deployment, save the desired `notify.*` entity in
+Notification settings, then use **Send test notification**. The diagnostic uses
+the configured production HA adapter but creates no price check, alert, or
+deduplication state. Its one-time result is shown after redirecting back to
+Settings. Phase 10 remains pending until this button is verified on the Pi.

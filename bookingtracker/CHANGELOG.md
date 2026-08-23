@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+Add an Ingress-safe, CSRF-protected Settings diagnostic that sends a clearly
+labelled test message through the same configured Home Assistant notification
+adapter used for real alerts. It creates no reservation, check, alert, or
+deduplication state.
+
 ## 0.3.0
 
 Begin Phase 10 with a 5% Decimal price-drop threshold, per-reservation
