@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed PDF property evidence scoring so generic Gmail/Booking calls to action cannot become a hotel name.
+- Added resilient Czech PDF cancellation/payment parsing and exact city-tax fee derivation.
+- Reworked reservation review into Czech sections: recognized values are read-only by default with an explicit correction control; missing values open directly for completion.
+
 ## 0.4.0
 
 - Added a shared, deterministic text/PDF reservation-import pipeline with a Czech/English Booking lexicon.

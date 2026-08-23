@@ -390,7 +390,12 @@ def create_app(
                 "property_name": value("property_name"), "booking_url": value("booking_url"),
                 "check_in": date.fromisoformat(value("check_in")) if value("check_in") else None,
                 "check_out": date.fromisoformat(value("check_out")) if value("check_out") else None,
-                "nights": integer("nights"), "adults": integer("adults"), "children": integer("children"),
+                "nights": (
+                    (date.fromisoformat(value("check_out")) - date.fromisoformat(value("check_in"))).days
+                    if value("check_in") and value("check_out")
+                    else candidate.nights
+                ),
+                "adults": integer("adults"), "children": integer("children"),
                 "rooms_count": integer("rooms_count"), "room_type": value("room_type"),
                 "meal_plan": value("meal_plan"),
                 "breakfast_included": {"yes": True, "no": False}.get(value("breakfast_included") or ""),
@@ -415,7 +420,7 @@ def create_app(
                 "review.html",
                 candidate=candidate,
                 token=token,
-                error="Required fields are missing.",
+                error="Chybí povinné údaje rezervace.",
             )
         app.state.pending.pop(token, None)
         saved = reservations.create(Reservation(**candidate.model_dump(), active=True))

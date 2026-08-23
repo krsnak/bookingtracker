@@ -83,11 +83,48 @@ def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: A
         )
         assert form.status_code == 200
         assert extracted.status_code == 200
-        assert "Review reservation" in extracted.text
+        assert "Kontrola rezervace" in extracted.text
         assert "/bookingtracker-test/reservations/save" in extracted.text
         css_link = re.search(r'<link[^>]+href="([^"]+)"', dashboard.text)[1]
         assert css_link == f"/bookingtracker-test/static/app.css?v={app.state.static_css_revision}"
         assert client.get("/bookingtracker-test/static/app.css").status_code == 200
+
+
+def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    source = (
+        "Property: Safe Hotel\nPříjezd: 5. září 2026\nOdjezd: 6. září 2026\n"
+        "2 dospělí\n1 noc, Economy Triple Room\nCelková cena EUR 18.88"
+    )
+    with TestClient(app) as client:
+        review = client.post(
+            "/reservations/extract", data={"csrf_token": app.state.csrf, "source_text": source}
+        )
+        assert all(label in review.text for label in ("Ubytování a pobyt", "Pokoj a hosté", "Cena"))
+        assert "Rozpoznáno" in review.text and "Upravit" in review.text
+        assert 'name="nights"' not in review.text
+        token = next(iter(app.state.pending))
+        saved = client.post(
+            "/reservations/save",
+            data={
+                "csrf_token": app.state.csrf,
+                "token": token,
+                "property_name": "Safe Hotel",
+                "booking_url": "https://www.booking.com/hotel/test/safe.html",
+                "check_in": "2026-09-05",
+                "check_out": "2026-09-06",
+                "adults": "2",
+                "rooms_count": "1",
+                "room_type": "Economy Triple Room",
+                "booked_total_price": "18.88",
+                "currency": "EUR",
+            },
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        assert app.state.reservations.list_active()[0].nights == 1
 
 
 def test_browser_alerts_and_validation_error_render(tmp_path) -> None:  # noqa: ANN001
@@ -113,7 +150,7 @@ def test_browser_alerts_and_validation_error_render(tmp_path) -> None:  # noqa: 
             },
         )
         assert response.status_code == 200
-        assert "Required fields are missing" in invalid.text
+        assert "Chybí povinné údaje rezervace" in invalid.text
 
 
 def test_invalid_import_dates_render_safe_review_and_cannot_be_saved(tmp_path) -> None:  # noqa: ANN001
@@ -130,7 +167,7 @@ def test_invalid_import_dates_render_safe_review_and_cannot_be_saved(tmp_path) -
             data={"csrf_token": app.state.csrf, "source_text": raw_text},
         )
         assert response.status_code == 200
-        assert "Review reservation" in response.text
+        assert "Kontrola rezervace" in response.text
         assert "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu." in response.text
         assert "synthetic-pin" not in response.text
         token = next(key for key in app.state.pending)
@@ -144,7 +181,7 @@ def test_invalid_import_dates_render_safe_review_and_cannot_be_saved(tmp_path) -
             },
         )
         assert saved.status_code == 200
-        assert "Required fields are missing" in saved.text
+        assert "Chybí povinné údaje rezervace" in saved.text
         assert app.state.reservations.list_active() == []
 
 

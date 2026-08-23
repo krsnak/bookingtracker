@@ -63,6 +63,10 @@ _PROPERTY_UI_TEXT = {
     "booking information",
     "your reservation",
 }
+_PROPERTY_CTA_TEXT = {
+    "zjistit více", "find out more", "upravit rezervaci", "manage booking",
+    "zaplatit hned", "pay now", "booking.com", "více informací",
+}
 INVALID_DATE_RANGE_MESSAGE = (
     "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu. Zkontrolujte vložené potvrzení."
 )
@@ -197,10 +201,23 @@ def find_after_heading(lines: list[str], heading: str) -> str | None:
 
 
 def parse_property_name(lines: list[str]) -> str | None:
+    candidates = _property_candidates(lines)
+    return candidates[0][0] if candidates else None
+
+
+def _property_candidates(lines: list[str]) -> list[tuple[str, int]]:
+    """Rank explicit Booking property evidence; generic UI text can never win."""
+    candidates: dict[str, int] = {}
+
+    def add(value: str, score: int) -> None:
+        name = value.strip(" .:-")
+        if _is_property_name(name):
+            candidates[name] = max(candidates.get(name, 0), score)
+
     for line in lines:
         match = re.match(r"Booking property:\s*(.+)", line, re.I)
-        if match and _is_property_name(match.group(1)):
-            return match.group(1).strip()
+        if match:
+            add(match.group(1), 100)
     # Booking's hotel heading is immediately before the information section.
     for index, line in enumerate(lines):
         if line.casefold() in {"booking information", "informace o rezervaci"}:
@@ -209,23 +226,30 @@ def parse_property_name(lines: list[str]) -> str | None:
                     _is_property_name(candidate)
                     and not parse_date(candidate)
                     and not parse_money(candidate)
+                    and not candidate.casefold().startswith("booking property:")
                 ):
-                    return candidate.strip(" .")
+                    add(candidate, 100)
     for line in lines:
         match = re.search(r"\baccommodation\s+(.+?)\s+will be waiting for you\b", line, re.I)
-        if match and _is_property_name(match.group(1)):
-            return match.group(1).strip(" .")
+        if match:
+            add(match.group(1), 95)
         match = re.search(r"\bubytování\s+(.+?)\s+vás bude očekávat\b", line, re.I)
-        if match and _is_property_name(match.group(1)):
-            return match.group(1).strip(" .")
+        if match:
+            add(match.group(1), 95)
+        title = re.search(
+            r"^PDF title:\s*(?:Gmail\s*-\s*)?.*?([A-Z][^-–—]+?)\s*"
+            r"[–—-]\s*(?:Děkujeme|Thank)",
+            line,
+            re.I,
+        )
+        if title:
+            add(title.group(1).replace("🛄", ""), 80)
     for line in lines:
         match = re.match(
             r"(?:property|property name|accommodation|hotel|ubytování)\s*:\s*(.+)", line, re.I
         )
         if match:
-            candidate = match.group(1).strip()
-            if _is_property_name(candidate):
-                return candidate
+            add(match.group(1), 70)
     for line in lines:
         if (
             line.casefold() not in _PROPERTY_UI_TEXT
@@ -238,24 +262,16 @@ def parse_property_name(lines: list[str]) -> str | None:
                 and not re.search(rf"^({_PROPERTY_EXCLUSIONS})", line, re.I)
                 and _is_property_name(line)
             ):
-                return line
-    return None
+                add(line, 10)
+    return sorted(candidates.items(), key=lambda item: (-item[1], item[0].casefold()))
 
 
 def parse_property_aliases(lines: list[str], primary: str | None) -> list[str]:
     """Keep explicit accommodation names as review evidence, never as a matcher shortcut."""
     aliases: list[str] = []
-    for line in lines:
-        match = re.search(
-            r"\b(?:accommodation|ubytování)\s+(.+?)\s+"
-            r"(?:will be waiting for you|vás bude očekávat)\b",
-            line,
-            re.I,
-        )
-        if match:
-            name = match.group(1).strip(" .")
-            if name != primary and _is_property_name(name):
-                aliases.append(name)
+    for name, score in _property_candidates(lines):
+        if name != primary and score >= 80:
+            aliases.append(name)
     return list(dict.fromkeys(aliases))
 
 
@@ -263,7 +279,8 @@ def _is_property_name(value: str) -> bool:
     return bool(
         value
         and value.casefold() not in _PROPERTY_UI_TEXT
-        and not re.search(r"(?:gmail|přeskočit|vybrána žádná|booking url)", value, re.I)
+        and value.casefold() not in _PROPERTY_CTA_TEXT
+        and not re.search(r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:)", value, re.I)
     )
 
 
@@ -445,7 +462,7 @@ def parse_prices(lines: list[str]) -> tuple[PriceBreakdown, list[str], list[str]
                 prices.payable_price = prices.payable_price or amount
             else:
                 prices.total_price = prices.total_price or amount
-        elif re.match(r"\s*\d+\s+.+?(?:room|suite|dormitory|apartment|studio|pokoj).+", line, re.I):
+        elif re.search(r"(?:room|suite|dormitory|apartment|studio|pokoj)", line, re.I):
             prices.base_price = prices.base_price or amount
     for section, totals in totals_by_section.items():
         if len(set(totals)) > 1:
@@ -458,6 +475,15 @@ def parse_prices(lines: list[str]) -> tuple[PriceBreakdown, list[str], list[str]
                 "0.01"
             ):
                 warnings.append("explicit total differs from itemized tax lines by rounding")
+    if (
+        prices.taxes_and_fees is None
+        and prices.city_tax is not None
+        and prices.base_price is not None
+        and prices.total_price is not None
+        and prices.base_price + prices.city_tax == prices.total_price
+    ):
+        prices.taxes_and_fees = prices.city_tax
+        warnings.append("daně a poplatky byly odvozeny z explicitní městské daně")
     return prices, warnings, ambiguous
 
 
@@ -479,7 +505,8 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
     if re.search(r"non-refundable", text, re.I):
         free = False
     elif re.search(
-        r"free (?:of charge )?cancellation|cancel .*free of charge|zdarma do", text, re.I
+        r"free (?:of charge )?cancellation|cancel .*free of charge|zdarma do|"
+        r"bezplatné zrušení(?: rezervace)?\s+do", text, re.I
     ):
         free = True
     else:
@@ -499,7 +526,8 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
             pass
     if deadline is None:
         czech = re.search(
-            r"zdarma do\s+(\d{1,2})\.\s*([A-Za-záčďéěíňóřšťúůýž]+)\s+(\d{4})\s+(\d{1,2}):(\d{2})",
+            r"(?:zdarma do|bezplatné zrušení(?: rezervace)?\s+do)\s+(\d{1,2})\.\s*"
+            r"([A-Za-záčďéěíňóřšťúůýž]+)\s+(\d{4})\s+(\d{1,2}):(\d{2})",
             text,
             re.I,
         )
@@ -514,7 +542,10 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
 def parse_meal_facts(lines: Iterable[str]) -> tuple[str | None, bool | None]:
     joined = "\n".join(lines)
     if re.search(
-        r"breakfast (?:is )?included|includes breakfast|konečná cena zahrnuje snídani", joined, re.I
+        r"breakfast (?:is )?included|includes breakfast|konečná cena zahrnuje snídani|"
+        r"snídaně zahrnutá v ceně",
+        joined,
+        re.I,
     ):
         return "Breakfast included", True
     if re.search(
@@ -536,8 +567,12 @@ def parse_booking_url(lines: Iterable[str]) -> str | None:
 
 def parse_payment_conditions(lines: Iterable[str]) -> str | None:
     for line in lines:
-        if re.search(r"booking automaticky strhne částku z karty", line, re.I):
-            return "Booking automaticky strhne částku z karty"
+        if re.search(
+            r"booking(?:\.com)? automaticky strhne částku z (?:(?:vaší|vaši|vaš[eí]) )?karty",
+            line,
+            re.I,
+        ):
+            return "Automatická budoucí platba kartou přes Booking.com"
         if re.search(r"booking (?:will |automatically )?charges? (?:your )?card", line, re.I):
             return "Booking automatically charges card"
     return None

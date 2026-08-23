@@ -83,6 +83,28 @@ def test_extracts_english_confirmation_without_treating_destination_as_property(
     assert candidate.payment_conditions == "Booking automatically charges card"
 
 
+def test_extracts_sahara_sands_pdf_layout_regression_without_promoting_cta() -> None:
+    candidate = extract_fixture("booking_sahara_sands_synthetic.txt")
+
+    assert candidate.property_name == "Sahara Sands Hotel"
+    assert "Zjistit více" not in candidate.property_aliases
+    assert candidate.booking_url == "https://www.booking.com/hotel/ma/diamant-sahara-camp.html"
+    assert candidate.check_in == date(2026, 9, 12)
+    assert candidate.check_out == date(2026, 9, 14)
+    assert candidate.nights == 2
+    assert candidate.free_cancellation is True
+    assert candidate.cancellation_deadline == datetime(2026, 9, 6, 23, 59)
+    assert "29.84 EUR" in (candidate.cancellation_text or "")
+    assert candidate.payment_conditions == "Automatická budoucí platba kartou přes Booking.com"
+    assert candidate.booked_base_price == Decimal("57.94")
+    assert candidate.city_tax == Decimal("1.74")
+    assert candidate.taxes_and_fees == Decimal("1.74")
+    assert candidate.vat is None
+    assert candidate.booked_total_price == Decimal("59.68")
+    assert candidate.booked_payable_price == Decimal("59.68")
+    assert candidate.currency == "EUR"
+
+
 def test_flags_competing_totals_and_does_not_block_reviewable_critical_data() -> None:
     candidate = extract_fixture("ambiguous_confirmation.txt")
 
@@ -130,7 +152,7 @@ def test_extracts_czech_markdown_tables_without_cross_section_price_confusion() 
     assert candidate.currency == "EUR"
     assert candidate.free_cancellation is True
     assert candidate.cancellation_deadline == datetime(2026, 9, 3, 23, 59)
-    assert candidate.payment_conditions == "Booking automaticky strhne částku z karty"
+    assert candidate.payment_conditions == "Automatická budoucí platba kartou přes Booking.com"
     assert any("rounding" in warning for warning in candidate.warnings)
     assert candidate.can_activate
 
@@ -156,7 +178,7 @@ def test_extracts_full_czech_gmail_markdown_without_persisting_mail_metadata() -
     assert candidate.booked_payable_price == Decimal("22.95")
     assert candidate.free_cancellation is True
     assert candidate.cancellation_deadline == datetime(2026, 9, 3, 23, 59)
-    assert candidate.payment_conditions == "Booking automaticky strhne částku z karty"
+    assert candidate.payment_conditions == "Automatická budoucí platba kartou přes Booking.com"
     assert candidate.can_activate
     assert "mail.example.invalid" not in candidate.source_text
     assert "secure.booking.com" not in candidate.source_text

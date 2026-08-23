@@ -108,6 +108,10 @@ def pdf_document(pdf_bytes: bytes) -> ReservationImportDocument:
             raise ImportDocumentError(PDF_SAFE_ERROR)
         extracted: list[str] = []
         uris: list[str] = []
+        metadata_title = str((reader.metadata or {}).get("/Title") or "").strip()
+        if metadata_title:
+            # Metadata is only evidence for the reviewable parser, never persisted raw.
+            extracted.append(f"PDF title: {metadata_title}")
         for page in reader.pages:
             try:
                 page_text = page.extract_text(extraction_mode="layout")

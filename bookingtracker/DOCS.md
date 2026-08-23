@@ -2,6 +2,10 @@
 
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
 
+Version `0.4.1` ranks property evidence rather than accepting generic CTA text. The review UI
+shows recognized facts as read-only Czech summaries with an explicit **Upravit** control; missing
+or ambiguous facts are opened for completion. Server-side typed validation remains mandatory.
+
 Version `0.4.0` introduces the preferred in-memory PDF confirmation import. PDF and text
 use one deterministic Czech/English pipeline; PDFs are limited to 10 MB and 20 pages and
 are never persisted. Text paste remains the fallback. The review screen now permits

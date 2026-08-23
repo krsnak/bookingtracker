@@ -8,6 +8,11 @@ to 10 MB/20 pages, rejects encrypted or active-content PDFs, and retains only no
 plus canonical HTTPS `/hotel/...` Booking URLs. Canonical URL is property identity evidence;
 property-name aliases are review evidence and never weaken the exact matcher.
 
+In 0.4.1, property identity is selected through deterministic evidence scoring: explicit Booking
+headings and accommodation waiting sentences outrank sanitized PDF titles and aliases, while CTA
+and navigation text are excluded. The review layer keeps recognized values read-only by default,
+but validates every submitted correction with the same typed model.
+
 BookingTracker is a local, single-user tool that tracks the price of an
 existing Booking.com reservation. It is developed on macOS and deployed as a
 Home Assistant add-on on a Raspberry Pi 4 (aarch64). Its governing invariant is

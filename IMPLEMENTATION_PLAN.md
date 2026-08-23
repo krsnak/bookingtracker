@@ -1,5 +1,11 @@
 # Implementation plan
 
+## Corrective import release 0.4.1
+
+Added CTA-resistant property evidence scoring, Czech split-line cancellation/payment parsing,
+and a Czech progressive review UI. Real Raspberry Pi validation of an actual Gmail PDF remains
+required before declaring this correction production-complete.
+
 ## Import phase 0.4.0
 
 Implemented the shared PDF/text reservation import boundary, Czech/English deterministic
