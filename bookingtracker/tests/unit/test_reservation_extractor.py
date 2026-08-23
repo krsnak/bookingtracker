@@ -113,3 +113,39 @@ def test_extracts_czech_markdown_tables_without_cross_section_price_confusion() 
     assert candidate.payment_conditions == "Booking automaticky strhne částku z karty"
     assert any("rounding" in warning for warning in candidate.warnings)
     assert candidate.can_activate
+
+
+def test_extracts_full_czech_gmail_markdown_without_persisting_mail_metadata() -> None:
+    candidate = extract_fixture("booking_czech_full_gmail_markdown_confirmation.txt")
+
+    assert candidate.property_name == "Papaya Hostel"
+    assert candidate.booking_url == (
+        "https://www.booking.com/hotel/ma/moroccan-friends-guesthouse.html"
+    )
+    assert candidate.check_in == date(2026, 9, 5)
+    assert candidate.check_out == date(2026, 9, 6)
+    assert candidate.nights == 1
+    assert candidate.room_type == "Třílůžkový pokoj s balkonem"
+    assert candidate.adults == 2
+    assert candidate.breakfast_included is True
+    assert candidate.booked_base_price == Decimal("19.13")
+    assert candidate.vat == Decimal("3.83")
+    assert candidate.city_tax == Decimal("2")
+    assert candidate.taxes_and_fees == Decimal("5.83")
+    assert candidate.booked_total_price == Decimal("24.95")
+    assert candidate.booked_payable_price == Decimal("22.95")
+    assert candidate.free_cancellation is True
+    assert candidate.cancellation_deadline == datetime(2026, 9, 3, 23, 59)
+    assert candidate.payment_conditions == "Booking automaticky strhne částku z karty"
+    assert candidate.can_activate
+    assert "mail.example.invalid" not in candidate.source_text
+    assert "secure.booking.com" not in candidate.source_text
+    assert "synthetic=value" not in candidate.source_text
+    assert "https://booking.com/" not in candidate.source_text
+    assert (
+        "https://www.booking.com/hotel/ma/moroccan-friends-guesthouse.html" in candidate.source_text
+    )
+    assert (
+        "Není vybrána žádná položka"
+        in (FIXTURES / "booking_czech_full_gmail_markdown_confirmation.txt").read_text()
+    )

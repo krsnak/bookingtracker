@@ -33,11 +33,11 @@ def test_addon_build_context_is_self_contained() -> None:
     assert "test -f /usr/share/novnc/vnc.html" in dockerfile
     assert "test -d /usr/share/novnc/app" in dockerfile
     assert "test -d /usr/share/novnc/core" in dockerfile
-    assert 'version: "0.3.4"' in (ROOT / "config.yaml").read_text()
+    assert 'version: "0.3.5"' in (ROOT / "config.yaml").read_text()
     assert "image: ghcr.io/krsnak/bookingtracker-addon" in (ROOT / "config.yaml").read_text()
     assert "arch: [aarch64]" in (ROOT / "config.yaml").read_text()
     assert "homeassistant_api: true" in (ROOT / "config.yaml").read_text()
-    assert 'version = "0.3.4"' in (ROOT / "pyproject.toml").read_text()
+    assert 'version = "0.3.5"' in (ROOT / "pyproject.toml").read_text()
     assert "ports: {}" in (ROOT / "config.yaml").read_text()
     copies = [
         line.split(maxsplit=2)[1]

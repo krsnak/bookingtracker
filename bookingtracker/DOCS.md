@@ -41,13 +41,16 @@ token and chat configuration; BookingTracker does not retain them.
 The Home Assistant REST service call uses top-level `entity_id`, `title`, and
 `message` fields for `notify.send_message`.
 
-Version `0.3.4` accepts pasted Czech Gmail Markdown confirmations without using
-Gmail links or metadata. Two-column tables are normalized to labelled facts;
-only a canonical `https://www.booking.com/hotel/...` link becomes the Booking
-URL. Explicit room-specific breakfast evidence is retained, while an absent
-meal statement remains unknown. Price, payment, city-tax, and cancellation
-sections remain separate; the model has no persisted `paid` field, so a
-zero-paid display is not substituted for the booked total.
+Version `0.3.5` accepts both short and long Czech Gmail Markdown confirmations
+without retaining Gmail chrome or non-hotel links. A canonical
+`https://www.booking.com/hotel/...` link is preferred even when it appears
+after generic Booking, confirmation, payment, image, or mail links. Explicit
+`Příjezd`/`Odjezd` facts outrank cancellation dates. Repeated equal price facts
+are not treated as a conflict; section labels keep stay total, planned Booking
+payment, and city tax distinct. Explicit room-specific breakfast evidence is
+retained, while an absent meal statement remains unknown. The model has no
+persisted `paid` field, so a zero-paid display is not substituted for the
+booked total.
 
 ## Prebuilt ARM64 updates
 

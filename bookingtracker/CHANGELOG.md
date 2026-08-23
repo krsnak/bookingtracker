@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5
+
+Fix deterministic import of long Czech Gmail Markdown confirmations: canonical
+hotel links and property evidence now outrank mail chrome, explicitly labelled
+arrival/departure dates outrank cancellation dates, and repeated section facts
+retain their price/payment meanings. Pasted mail metadata and non-hotel links
+are sanitized before a confirmation is retained.
+
 ## 0.3.4
 
 Parse sanitized Czech Markdown Booking confirmations deterministically,

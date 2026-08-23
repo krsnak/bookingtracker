@@ -14,6 +14,7 @@ from app.reservations.deterministic_parser import (
     parse_prices,
     parse_property_name,
     parse_room,
+    sanitize_source_text,
 )
 from app.reservations.models import FieldConfidence, ReservationCandidate
 from app.reservations.validator import validate_activation
@@ -63,7 +64,7 @@ class ReservationExtractor:
             vat=price.vat,
             city_tax=price.city_tax,
             payment_conditions=parse_payment_conditions(lines),
-            source_text=source_text,
+            source_text=sanitize_source_text(source_text),
             extraction_confidence=confidence,
             field_confidence=field_confidence,
             warnings=warnings,

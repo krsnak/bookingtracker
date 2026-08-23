@@ -44,6 +44,49 @@ _CANCELLATION_HEADINGS = (
     r"cancellation conditions?|cancellation fee|podmínky zrušení rezervace|"
     r"poplatek za zrušení rezervace"
 )
+_URL_PATTERN = re.compile(r"(?:https?://|mailto:|tel:|about:)[^\s<>()]+", re.IGNORECASE)
+_BOOKING_HOTEL_URL = re.compile(
+    r"https?://(?:[a-z]{2}\.)?(?:www\.)?booking\.com/hotel/[^\s?#)]+", re.IGNORECASE
+)
+_PROPERTY_UI_TEXT = {
+    "není vybrána žádná položka",
+    "přeskočit na obsah",
+    "booking.com",
+    "booking confirmation",
+    "booking information",
+    "your reservation",
+}
+
+
+def canonical_booking_hotel_url(value: str) -> str | None:
+    """Return only a canonical hotel page, never a confirmation or payment link."""
+    match = _BOOKING_HOTEL_URL.search(value)
+    if not match:
+        return None
+    path = match.group(0).split("?", 1)[0].split("#", 1)[0]
+    parsed = re.match(
+        r"https?://(?:[a-z]{2}\.)?(?:www\.)?booking\.com(?P<path>/hotel/.+)", path, re.I
+    )
+    return f"https://www.booking.com{parsed.group('path')}" if parsed else None
+
+
+def sanitize_source_text(source_text: str) -> str:
+    """Keep useful confirmation facts while preventing pasted mail metadata from persistence."""
+    sanitized: list[str] = []
+    for raw in source_text.splitlines(keepends=True):
+        line = raw.rstrip("\r\n")
+        newline = raw[len(line) :]
+        if re.search(r"\b(?:PIN|reservation confirmation number|číslo rezervace)\b", line, re.I):
+            continue
+
+        def replace_url(match: re.Match[str]) -> str:
+            canonical = canonical_booking_hotel_url(match.group(0))
+            return canonical or "[link removed]"
+
+        line = _URL_PATTERN.sub(replace_url, line)
+        line = re.sub(r"!\[[^]]*\]\([^)]*\)", "", line)
+        sanitized.append(f"{line}{newline}")
+    return "".join(sanitized)
 
 
 def clean_lines(source_text: str) -> list[str]:
@@ -57,8 +100,13 @@ def clean_lines(source_text: str) -> list[str]:
         links = re.findall(r"(?<!!)\[([^]]+)\]\(([^)]+)\)", line)
         for label, url in links:
             line = line.replace(f"[{label}]({url})", label)
-            if re.fullmatch(r"https://www\.booking\.com/hotel/[^\s?#]+", url):
-                lines.append(f"Booking URL: {url}")
+            if canonical := canonical_booking_hotel_url(url):
+                lines.append(f"Booking property: {label.strip()}")
+                lines.append(f"Booking URL: {canonical}")
+        for url in _URL_PATTERN.findall(line):
+            if canonical := canonical_booking_hotel_url(url):
+                lines.append(f"Booking URL: {canonical}")
+        line = _URL_PATTERN.sub("", line)
         line = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
         line = re.sub(r"^#{1,6}\s*", "", line)
         if line.startswith("|") and line.endswith("|"):
@@ -69,7 +117,9 @@ def clean_lines(source_text: str) -> list[str]:
             elif len(cells) == 1:
                 lines.append(cells[0])
             elif len(cells) > 1:
-                lines.extend(cells)
+                # Gmail occasionally adds empty layout columns.  The outer cells
+                # remain the semantic label/value pair.
+                lines.append(f"{cells[0]}: {cells[-1]}")
             continue
         line = re.sub(r"\s+", " ", line).strip()
         if line:
@@ -142,21 +192,43 @@ def find_after_heading(lines: list[str], heading: str) -> str | None:
 
 def parse_property_name(lines: list[str]) -> str | None:
     for line in lines:
+        match = re.match(r"Booking property:\s*(.+)", line, re.I)
+        if match and _is_property_name(match.group(1)):
+            return match.group(1).strip()
+    for line in lines:
+        match = re.search(r"\bubytování\s+(.+?)\s+vás bude očekávat\b", line, re.I)
+        if match and _is_property_name(match.group(1)):
+            return match.group(1).strip(" .")
+    for line in lines:
         match = re.match(
             r"(?:property|property name|accommodation|hotel|ubytování)\s*:\s*(.+)", line, re.I
         )
         if match:
-            return match.group(1).strip()
-    blocked = {"booking.com", "booking confirmation", "booking information", "your reservation"}
-    for line in lines[:8]:
-        if line.casefold() not in blocked and not parse_date(line) and not parse_money(line):
+            candidate = match.group(1).strip()
+            if _is_property_name(candidate):
+                return candidate
+    for line in lines:
+        if (
+            line.casefold() not in _PROPERTY_UI_TEXT
+            and not parse_date(line)
+            and not parse_money(line)
+        ):
             if (
                 len(line) > 2
                 and not re.match(r"^\d", line)
                 and not re.search(rf"^({_PROPERTY_EXCLUSIONS})", line, re.I)
+                and _is_property_name(line)
             ):
                 return line
     return None
+
+
+def _is_property_name(value: str) -> bool:
+    return bool(
+        value
+        and value.casefold() not in _PROPERTY_UI_TEXT
+        and not re.search(r"(?:gmail|přeskočit|vybrána žádná|booking url)", value, re.I)
+    )
 
 
 def parse_dates(lines: list[str]) -> tuple[date | None, date | None]:
@@ -170,7 +242,11 @@ def parse_dates(lines: list[str]) -> tuple[date | None, date | None]:
         if parsed and re.search(r"^(departure|check-out|check out|odjezd)\s*:", line, re.I):
             departures.append(parsed)
     if arrivals or departures:
-        return (arrivals[0] if arrivals else None, departures[0] if departures else None)
+        check_in = arrivals[0] if arrivals else None
+        check_out = departures[0] if departures else None
+        if check_in and check_out and check_out > check_in:
+            return check_in, check_out
+        return None, None
     all_dates = [parsed for line in lines if (parsed := parse_date(line))]
     return (all_dates[0], all_dates[1]) if len(all_dates) >= 2 else (None, None)
 
@@ -341,9 +417,8 @@ def parse_meal_facts(lines: Iterable[str]) -> tuple[str | None, bool | None]:
 
 def parse_booking_url(lines: Iterable[str]) -> str | None:
     for line in lines:
-        match = re.match(r"Booking URL:\s*(https://www\.booking\.com/hotel/[^\s?#]+)$", line)
-        if match:
-            return match.group(1)
+        if line.startswith("Booking URL:") and (canonical := canonical_booking_hotel_url(line)):
+            return canonical
     return None
 
 

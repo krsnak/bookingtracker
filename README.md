@@ -173,11 +173,14 @@ data. To capture a new candidate fixture manually, use
 sanitize the generated file before committing it. Live parser smoke checks use
 `scripts/rate_parser_smoke.py` and are never part of normal pytest.
 
-Confirmation import also accepts sanitized Czech Markdown: labelled two-column
+Confirmation import also accepts short and long Czech Gmail Markdown: labelled
 tables, Czech dates, safe Booking property links, separated price/payment
 sections, cancellation facts, and explicit room-specific breakfast evidence.
-Only a canonical Booking hotel link is retained; Gmail, mailto, image, and
-payment links are ignored. Unknown meal facts remain unknown.
+Explicit arrival/departure labels outrank cancellation dates, and repeated
+equal section facts are not treated as a conflict. Only a canonical Booking
+hotel link is retained; Gmail, mailto, image, confirmation, and payment links
+are removed before the pasted text is persisted. Unknown meal facts remain
+unknown.
 
 ## Security
 
