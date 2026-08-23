@@ -19,3 +19,11 @@ returned to `ready`, and the login persisted across an add-on restart. The
 subsequent protected smoke succeeded in the same persistent context using
 `/usr/bin/chromium`; the 16:9 noVNC iframe and CSS content-hash cache-busting
 also worked.
+
+Phase 10 remains pending real-Pi HA notify verification. It adds a default 5%
+Decimal price-drop threshold, optional per-reservation override, and persisted
+percentage-band deduplication. Only accepted/comparable exact or explicitly
+better matches can notify. Home Assistant owns Telegram secrets; BookingTracker
+uses a general configured `notify.*` entity through the supported internal Core
+API proxy. Delivery failures preserve alerts and checks with sanitized errors
+for retry.

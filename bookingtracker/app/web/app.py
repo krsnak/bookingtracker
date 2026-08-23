@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app.alerts.notifications import ConsoleNotificationAdapter
+from app.alerts.notifications import ConsoleNotificationAdapter, HomeAssistantNotificationAdapter
 from app.alerts.service import AlertService
 from app.booking.parser import BookingRateParser
 from app.browser.executor import ThreadBoundBookingBrowser
@@ -30,8 +30,10 @@ from app.db.connection import SQLiteDatabase
 from app.db.repository import (
     AlertRepository,
     PriceCheckRepository,
+    PriceDropBandStateRepository,
     ReservationRepository,
     ScheduleStateRepository,
+    SettingsRepository,
 )
 from app.integrations.home_assistant.remote_desktop import RemoteDesktopError, RemoteDesktopRuntime
 from app.matching.matcher import ExactReservationMatcher
@@ -100,6 +102,7 @@ def create_app(
     reservations = ReservationRepository(database)
     history = PriceCheckRepository(database)
     alerts = AlertRepository(database)
+    settings = SettingsRepository(database)
     lease = ManualBrowserLease()
     remote = remote_runtime or RemoteDesktopRuntime(RemoteDesktopSettings.from_environment(), lease)
     browser = ThreadBoundBookingBrowser(
@@ -116,7 +119,15 @@ def create_app(
         ),
         ScheduleStateRepository(database),
         SchedulePolicy(),
-        AlertService(alerts, history, ConsoleNotificationAdapter()),
+        AlertService(
+            alerts,
+            history,
+            HomeAssistantNotificationAdapter(settings.get_notify_entity)
+            if __import__("os").environ.get("SUPERVISOR_TOKEN")
+            else ConsoleNotificationAdapter(),
+            settings,
+            PriceDropBandStateRepository(database),
+        ),
         manual_session_active=lambda: lease.active,
     )
     scheduler = ReservationScheduler(actual_runner)
@@ -160,6 +171,7 @@ def create_app(
     app.state.reservations = reservations
     app.state.history = history
     app.state.alerts = alerts
+    app.state.settings = settings
     app.state.browser = browser
     app.state.runner = actual_runner
     app.state.scheduler = scheduler
@@ -234,6 +246,31 @@ def create_app(
     def new_reservation(request: Request):
         return render(request, "new.html")
 
+    @app.get("/settings", name="settings_view")
+    def settings_view(request: Request):
+        return render(request, "settings.html", settings=settings)
+
+    @app.post("/settings", name="update_settings")
+    def update_settings(
+        request: Request,
+        csrf_token: str = Form(),
+        price_drop_threshold_percent: str = Form(""),
+        home_assistant_notify_entity: str = Form(""),
+    ):
+        csrf(csrf_token)
+        try:
+            threshold = Decimal(price_drop_threshold_percent)
+            if not Decimal("0") < threshold <= Decimal("100"):
+                raise ValueError("Threshold must be greater than 0 and at most 100")
+            entity = home_assistant_notify_entity.strip()
+            if entity and not entity.startswith("notify."):
+                raise ValueError("Home Assistant notify entity must start with notify.")
+        except (ValueError, ArithmeticError) as error:
+            return render(request, "settings.html", settings=settings, error=str(error))
+        settings.set_price_drop_threshold(threshold)
+        settings.set_notify_entity(entity or None)
+        return RedirectResponse(url_for_request(request, "settings_view"), status_code=303)
+
     @app.post("/reservations/extract", name="extract_reservation")
     def extract_reservation(request: Request, source_text: str = Form(), csrf_token: str = Form()):
         csrf(csrf_token)
@@ -248,6 +285,7 @@ def create_app(
         token: str = Form(),
         property_name: str = Form(""),
         booking_url: str = Form(""),
+        price_drop_threshold_percent: str = Form(""),
         csrf_token: str = Form(),
     ):
         csrf(csrf_token)
@@ -255,7 +293,13 @@ def create_app(
         if candidate is None:
             raise HTTPException(400, "Review session expired; extract the confirmation again.")
         candidate = candidate.model_copy(
-            update={"property_name": property_name or None, "booking_url": booking_url or None}
+            update={
+                "property_name": property_name or None,
+                "booking_url": booking_url or None,
+                "price_drop_threshold_percent": Decimal(price_drop_threshold_percent)
+                if price_drop_threshold_percent
+                else None,
+            }
         )
         if not candidate.can_activate:
             return render(
@@ -316,6 +360,7 @@ def create_app(
         taxes_and_fees: str = Form(""),
         currency: str = Form(""),
         payment_conditions: str = Form(""),
+        price_drop_threshold_percent: str = Form(""),
     ):
         csrf(csrf_token)
         item = reservations.get(UUID(reservation_id))
@@ -344,6 +389,9 @@ def create_app(
                 "taxes_and_fees": Decimal(taxes_and_fees) if taxes_and_fees else None,
                 "currency": currency or None,
                 "payment_conditions": payment_conditions or None,
+                "price_drop_threshold_percent": Decimal(price_drop_threshold_percent)
+                if price_drop_threshold_percent
+                else None,
             }
             candidate = Reservation.model_validate(data)
         except (ValidationError, ValueError) as error:
@@ -394,6 +442,12 @@ def create_app(
         )
         return RedirectResponse(url_for_request(request, "alerts_view"), status_code=303)
 
+    @app.post("/alerts/{alert_id}/retry", name="retry_alert")
+    def retry_alert(request: Request, alert_id: str, csrf_token: str = Form()):
+        csrf(csrf_token)
+        actual_runner.alerts.retry(UUID(alert_id))
+        return RedirectResponse(url_for_request(request, "alerts_view"), status_code=303)
+
     @app.get("/browser", name="browser_status")
     def browser_status(request: Request):
         return render(request, "browser.html", health=browser.health(), remote=remote.health())
@@ -402,7 +456,9 @@ def create_app(
     def browser_smoke(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
         if lease.active:
-            raise HTTPException(409, "Manual remote session is active; end it before browser actions.")
+            raise HTTPException(
+                409, "Manual remote session is active; end it before browser actions."
+            )
         return render(
             request,
             "browser.html",
@@ -415,7 +471,9 @@ def create_app(
     def browser_start(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
         if lease.active:
-            raise HTTPException(409, "Manual remote session is active; end it before browser actions.")
+            raise HTTPException(
+                409, "Manual remote session is active; end it before browser actions."
+            )
         browser.start()
         return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 
@@ -423,7 +481,9 @@ def create_app(
     def browser_stop(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
         if lease.active:
-            raise HTTPException(409, "Manual remote session is active; end it before browser actions.")
+            raise HTTPException(
+                409, "Manual remote session is active; end it before browser actions."
+            )
         browser.stop()
         return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 

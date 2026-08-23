@@ -117,6 +117,7 @@ class ReservationRepository:
             "city_tax",
             "currency",
             "payment_conditions",
+            "price_drop_threshold_percent",
             "source_text",
             "extraction_confidence",
             "field_confidence_json",
@@ -163,6 +164,7 @@ class ReservationRepository:
             "city_tax": _decimal(reservation.city_tax),
             "currency": reservation.currency,
             "payment_conditions": reservation.payment_conditions,
+            "price_drop_threshold_percent": _decimal(reservation.price_drop_threshold_percent),
             "source_text": reservation.source_text,
             "extraction_confidence": str(reservation.extraction_confidence),
             "field_confidence_json": _json(
@@ -184,6 +186,7 @@ class ReservationRepository:
             "taxes_and_fees",
             "vat",
             "city_tax",
+            "price_drop_threshold_percent",
         ):
             if data[name] is not None:
                 data[name] = Decimal(data[name])
@@ -201,6 +204,73 @@ class ReservationRepository:
             extraction_confidence=float(data["extraction_confidence"]),
         )
         return Reservation.model_validate(data)
+
+
+class SettingsRepository:
+    """Small local settings store; HA secrets never belong here."""
+
+    DEFAULT_THRESHOLD = Decimal("5")
+
+    def __init__(self, database: SQLiteDatabase) -> None:
+        self.database = database
+
+    def get_price_drop_threshold(self) -> Decimal:
+        return Decimal(self._get("price_drop_threshold_percent") or str(self.DEFAULT_THRESHOLD))
+
+    def set_price_drop_threshold(self, value: Decimal) -> None:
+        self._set("price_drop_threshold_percent", str(value))
+
+    def get_notify_entity(self) -> str | None:
+        return self._get("home_assistant_notify_entity")
+
+    def set_notify_entity(self, value: str | None) -> None:
+        self._set("home_assistant_notify_entity", value or "")
+
+    def _get(self, key: str) -> str | None:
+        self.database.migrate()
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row and row["value"] else None
+
+    def _set(self, key: str, value: str) -> None:
+        self.database.migrate()
+        with self.database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO app_settings(key, value, updated_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                (key, value),
+            )
+
+
+class PriceDropBandStateRepository:
+    def __init__(self, database: SQLiteDatabase) -> None:
+        self.database = database
+
+    def get(self, reservation_id: UUID) -> tuple[Decimal, int, Decimal] | None:
+        self.database.migrate()
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM price_drop_band_states WHERE reservation_id = ?",
+                (str(reservation_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return (
+            Decimal(row["threshold_percent"]),
+            row["highest_notified_band"],
+            Decimal(row["highest_observed_percent"]),
+        )
+
+    def save(self, reservation_id: UUID, threshold: Decimal, band: int, observed: Decimal) -> None:
+        self.database.migrate()
+        with self.database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO price_drop_band_states(reservation_id, threshold_percent, highest_notified_band, highest_observed_percent, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+                "ON CONFLICT(reservation_id) DO UPDATE SET threshold_percent=excluded.threshold_percent, highest_notified_band=excluded.highest_notified_band, highest_observed_percent=excluded.highest_observed_percent, updated_at=excluded.updated_at",
+                (str(reservation_id), str(threshold), band, str(observed)),
+            )
 
 
 class PriceCheckRepository:
@@ -443,6 +513,14 @@ class AlertRepository:
                 (str(reservation_id),),
             ).fetchall()
         return [self._from_row(row) for row in rows]
+
+    def get(self, alert_id: UUID) -> Alert | None:
+        self.database.migrate()
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM alerts WHERE id = ?", (str(alert_id),)
+            ).fetchone()
+        return self._from_row(row) if row else None
 
     def acknowledge(self, alert_id: UUID, acknowledged_at: datetime) -> None:
         with self.database.transaction() as connection:

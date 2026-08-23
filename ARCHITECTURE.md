@@ -361,6 +361,25 @@ safe state such as browser status, active reservation count, last successful
 or failed check, best saving, and manual-action required. Core code remains
 usable without Home Assistant.
 
+Phase 10 notification design: the global minimum price drop is 5%, with an
+optional Decimal per-reservation override (greater than 0 and no more than
+100). Only an accepted exact/equivalent or explicitly-better match with a
+comparable final total, same currency, and known critical facts can create a
+price-drop alert. The persisted dedupe state records threshold bands: with 5%,
+the first 5%, 10%, 15%, and later bands notify once; returning to an already
+notified band never does. A threshold change silently rebases state to the
+historical high-water mark under the new threshold, preventing a configuration
+change from replaying old drops.
+
+The generic HA notify adapter uses the supported Core API proxy at
+`http://supervisor/core/api/`, enabled only by `homeassistant_api: true`, and
+uses the transient `SUPERVISOR_TOKEN` bearer token only for that request. It
+calls `notify.send_message` targeting a user-configured `notify.*` entity.
+Home Assistant—not BookingTracker—owns any Telegram token or chat ID. Failed
+delivery leaves the immutable price check and generated internal alert intact;
+the attempt, sanitized error, and delivery state are persisted for a safe retry
+without regenerating or duplicating the alert.
+
 ## Raspberry Pi resource and deployment risks
 
 The Pi runtime intentionally has one FastAPI process, one scheduler, one

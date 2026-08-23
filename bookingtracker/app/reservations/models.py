@@ -71,6 +71,7 @@ class ReservationDraft(BaseModel):
     city_tax: Decimal | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     payment_conditions: str | None = None
+    price_drop_threshold_percent: Decimal | None = Field(default=None, gt=0, le=100)
     source_text: str = Field(min_length=1)
     extraction_confidence: float = Field(ge=0, le=1)
     field_confidence: dict[str, FieldConfidence] = Field(default_factory=dict)

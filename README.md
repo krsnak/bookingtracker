@@ -84,6 +84,23 @@ price check intact even if delivery fails. Phase 9 remote-browser recovery has
 completed its real Raspberry Pi / Home Assistant Ingress validation gate. macOS
 development does not enable Xvfb, VNC, or noVNC.
 
+## Phase 10 notification policy
+
+Phase 10 is in progress and is not production-complete. Its default minimum
+comparable price drop is 5%; an individual reservation may set a Decimal
+override from greater than 0 through 100%. A price-drop notification requires
+the existing accepted/comparable exact-match gate, same currency, and final
+tax-inclusive basis—cheaper rejected rooms or rate plans never alert.
+
+Alerts deduplicate by persisted percentage bands (5%, 10%, 15%, and so on at
+the default threshold). A return to a band that was already sent stays quiet;
+only a higher unseen band notifies. Changing a threshold silently establishes a
+new historical high-water baseline, avoiding historical notification floods.
+Home Assistant owns Telegram configuration and secrets. BookingTracker uses a
+generic configured `notify.*` entity through its internal API proxy, so another
+HA notifier can be used later. Delivery failures retain the price check and
+internal alert, store only a sanitized error, and allow a safe retry.
+
 ## Remote/manual browser recovery
 
 In the Home Assistant add-on, version `0.2.4` starts one headful Chromium in a

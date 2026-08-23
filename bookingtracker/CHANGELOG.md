@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+Begin Phase 10 with a 5% Decimal price-drop threshold, per-reservation
+override, persistent percentage-band deduplication, generic Home Assistant
+`notify.*` delivery through the Core API proxy, and safe delivery retry.
+
 ## 0.2.4
 
 Cache-bust BookingTracker CSS with a deterministic content revision.

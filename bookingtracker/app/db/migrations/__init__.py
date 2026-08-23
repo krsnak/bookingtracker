@@ -114,4 +114,24 @@ MIGRATIONS: list[tuple[int, str]] = [
             ON alerts(reservation_id, created_at DESC);
         """,
     ),
+    (
+        3,
+        """
+        ALTER TABLE reservations ADD COLUMN price_drop_threshold_percent TEXT;
+
+        CREATE TABLE app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE price_drop_band_states (
+            reservation_id TEXT PRIMARY KEY REFERENCES reservations(id) ON DELETE CASCADE,
+            threshold_percent TEXT NOT NULL,
+            highest_notified_band INTEGER NOT NULL,
+            highest_observed_percent TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """,
+    ),
 ]

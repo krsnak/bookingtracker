@@ -59,7 +59,9 @@ class CheckRunner:
             )
             updated = self.policy.next_state(state, record.status, now)
             self.schedules.save(updated)
-            self.alerts.process(record, consecutive_failures=updated.consecutive_failures)
+            self.alerts.process(
+                record, reservation, consecutive_failures=updated.consecutive_failures
+            )
             return record
 
     def begin_manual_session(self, acquire: Callable[[], bool]) -> bool:

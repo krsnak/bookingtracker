@@ -6,9 +6,15 @@ from decimal import Decimal
 
 from app.alerts.models import Alert, AlertSeverity, AlertType, DeliveryStatus
 from app.alerts.notifications import NotificationAdapter
-from app.db.repository import AlertRepository, PriceCheckRepository
+from app.db.repository import (
+    AlertRepository,
+    PriceCheckRepository,
+    PriceDropBandStateRepository,
+    SettingsRepository,
+)
 from app.matching.models import MatchClassification
 from app.pricing.models import PriceCheckRecord, PriceCheckStatus
+from app.reservations.models import Reservation
 
 
 class AlertService:
@@ -17,17 +23,31 @@ class AlertService:
         alerts: AlertRepository,
         checks: PriceCheckRepository,
         notifier: NotificationAdapter,
+        settings: SettingsRepository | None = None,
+        bands: PriceDropBandStateRepository | None = None,
         *,
         failure_threshold: int = 3,
     ) -> None:
         self.alerts = alerts
         self.checks = checks
         self.notifier = notifier
+        self.settings = settings
+        self.bands = bands
         self.failure_threshold = failure_threshold
 
-    def process(self, check: PriceCheckRecord, *, consecutive_failures: int = 0) -> list[Alert]:
+    def process(
+        self,
+        check: PriceCheckRecord,
+        reservation: Reservation | None = None,
+        *,
+        consecutive_failures: int = 0,
+    ) -> list[Alert]:
         created: list[Alert] = []
-        if self._is_price_drop(check):
+        if (
+            self._is_price_drop(check)
+            and reservation is not None
+            and self._should_notify_band(check, reservation)
+        ):
             current = check.comparison.current_price
             created.extend(
                 self._create(
@@ -36,17 +56,17 @@ class AlertService:
                         price_check_id=check.id,
                         type=AlertType.PRICE_DROP,
                         severity=AlertSeverity.INFO,
-                        title="Comparable price dropped",
-                        message=(
-                            f"Comparable current price is {current} {check.comparison.currency}."
-                        ),
+                        title="💸 Cena rezervace klesla",
+                        message=self._price_drop_message(check, reservation),
                         dedupe_key=(
-                            f"price-drop:{check.reservation_id}:{current}:"
-                            f"{check.match_classification or 'unknown'}"
+                            f"price-drop-band:{check.reservation_id}:"
+                            f"{self._band(check, reservation)}"
                         ),
                         metadata={
                             "current_price": str(current),
                             "delta": str(check.comparison.delta_amount),
+                            "percent_saving": str(self._saving_percent(check)),
+                            "band": str(self._band(check, reservation)),
                         },
                     )
                 )
@@ -119,10 +139,81 @@ class AlertService:
     def _is_price_drop(check: PriceCheckRecord) -> bool:
         return bool(
             check.status is PriceCheckStatus.SUCCESS
+            and check.matched
+            and check.match_classification
+            in {
+                MatchClassification.EXACT,
+                MatchClassification.EQUIVALENT,
+                MatchClassification.BETTER,
+            }
             and check.comparison
             and check.comparison.comparable
+            and check.comparison.booked_price is not None
+            and check.comparison.booked_price > Decimal("0")
+            and check.comparison.current_price is not None
+            and check.comparison.currency is not None
             and check.comparison.delta_amount is not None
             and check.comparison.delta_amount < Decimal("0")
+        )
+
+    def _threshold(self, reservation: Reservation) -> Decimal:
+        return reservation.price_drop_threshold_percent or (
+            self.settings.get_price_drop_threshold() if self.settings else Decimal("5")
+        )
+
+    def _saving_percent(self, check: PriceCheckRecord) -> Decimal:
+        assert check.comparison and check.comparison.booked_price and check.comparison.current_price
+        return (
+            (check.comparison.booked_price - check.comparison.current_price)
+            / check.comparison.booked_price
+            * Decimal("100")
+        )
+
+    def _band(self, check: PriceCheckRecord, reservation: Reservation) -> int:
+        return int(self._saving_percent(check) // self._threshold(reservation))
+
+    def _should_notify_band(self, check: PriceCheckRecord, reservation: Reservation) -> bool:
+        if not self.bands:
+            return self._band(check, reservation) >= 1
+        threshold, observed, band = (
+            self._threshold(reservation),
+            self._saving_percent(check),
+            self._band(check, reservation),
+        )
+        previous = self.bands.get(reservation.id)
+        if previous is None:
+            self.bands.save(reservation.id, threshold, band, observed)
+            return band >= 1
+        old_threshold, old_band, old_observed = previous
+        if old_threshold != threshold:
+            # Rebase silently at the historical high-water mark to avoid alert floods.
+            rebased_band = int(max(old_observed, observed) // threshold)
+            self.bands.save(reservation.id, threshold, rebased_band, max(old_observed, observed))
+            return False
+        self.bands.save(reservation.id, threshold, max(old_band, band), max(old_observed, observed))
+        return band > old_band
+
+    def _price_drop_message(self, check: PriceCheckRecord, reservation: Reservation) -> str:
+        comparison = check.comparison
+        assert (
+            comparison
+            and comparison.booked_price
+            and comparison.current_price
+            and comparison.currency
+            and comparison.delta_amount is not None
+        )
+        saving = -comparison.delta_amount
+        return "\n".join(
+            (
+                reservation.property_name or "Booking reservation",
+                reservation.room_type or "Unknown room",
+                f"Stay: {reservation.check_in} → {reservation.check_out}",
+                f"Booked: {comparison.booked_price} {comparison.currency}",
+                f"Current: {comparison.current_price} {comparison.currency}",
+                f"Saving: {saving} {comparison.currency} ({self._saving_percent(check):.2f}%)",
+                f"Reached band: {self._band(check, reservation) * self._threshold(reservation)}%",
+                "Result: exact comparable match",
+            )
         )
 
     def _is_new_historical_low(self, check: PriceCheckRecord) -> bool:
@@ -162,10 +253,30 @@ class AlertService:
         try:
             self.notifier.deliver(alert)
         except Exception as error:  # delivery must never change persisted check success
-            self.alerts.mark_delivery(alert.id, DeliveryStatus.FAILED, str(error).split("\n", 1)[0])
+            self.alerts.mark_delivery(alert.id, DeliveryStatus.FAILED, self._sanitize_error(error))
             return [alert.model_copy(update={"delivery_status": DeliveryStatus.FAILED})]
         self.alerts.mark_delivery(alert.id, DeliveryStatus.DELIVERED)
         return [alert.model_copy(update={"delivery_status": DeliveryStatus.DELIVERED})]
+
+    def retry(self, alert_id) -> Alert | None:  # noqa: ANN001
+        alert = self.alerts.get(alert_id)
+        if alert is None or alert.delivery_status is not DeliveryStatus.FAILED:
+            return alert
+        try:
+            self.notifier.deliver(alert)
+        except Exception as error:
+            sanitized = self._sanitize_error(error)
+            self.alerts.mark_delivery(alert.id, DeliveryStatus.FAILED, sanitized)
+            return alert.model_copy(update={"delivery_error": sanitized})
+        self.alerts.mark_delivery(alert.id, DeliveryStatus.DELIVERED)
+        return alert.model_copy(
+            update={"delivery_status": DeliveryStatus.DELIVERED, "delivery_error": None}
+        )
+
+    @staticmethod
+    def _sanitize_error(error: Exception) -> str:
+        message = str(error).split("\n", 1)[0]
+        return message.replace("SUPERVISOR_TOKEN", "[redacted]")[:300]
 
     @staticmethod
     def _infrastructure_failures() -> set[PriceCheckStatus]:

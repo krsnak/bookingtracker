@@ -5,15 +5,19 @@ from decimal import Decimal
 from threading import Event, Thread
 from uuid import UUID
 
-from app.alerts.models import AlertType, DeliveryStatus
+from app.alerts.models import Alert, AlertSeverity, AlertType, DeliveryStatus
+from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.alerts.service import AlertService
 from app.db.connection import SQLiteDatabase
 from app.db.repository import (
     AlertRepository,
     PriceCheckRepository,
+    PriceDropBandStateRepository,
     ReservationRepository,
     ScheduleStateRepository,
+    SettingsRepository,
 )
+from app.matching.models import MatchClassification
 from app.pricing.models import PriceCheckRecord, PriceCheckStatus, PriceComparison
 from app.scheduling.models import CheckTrigger
 from app.scheduling.policy import SchedulePolicy, SchedulerSettings
@@ -61,6 +65,7 @@ def comparable_check(reservation_id: UUID, current: str) -> PriceCheckRecord:
         reservation_id=reservation_id,
         status=PriceCheckStatus.SUCCESS,
         matched=True,
+        match_classification=MatchClassification.EXACT,
         comparison=PriceComparison(
             comparable=True,
             booked_price=Decimal("18.88"),
@@ -78,16 +83,22 @@ def test_papaya_alert_deduplication_and_historical_low(tmp_path) -> None:  # noq
     alerts = AlertRepository(database)
     stored = reservations.create(reservation())
     notifier = RecordingNotifier()
-    service = AlertService(alerts, history, notifier)
+    service = AlertService(
+        alerts,
+        history,
+        notifier,
+        SettingsRepository(database),
+        PriceDropBandStateRepository(database),
+    )
 
     first = history.create(comparable_check(stored.id, "16.88"), [])
-    service.process(first)
+    service.process(first, stored)
     duplicate = history.create(comparable_check(stored.id, "16.88"), [])
-    service.process(duplicate)
+    service.process(duplicate, stored)
     lower = history.create(comparable_check(stored.id, "15.50"), [])
-    service.process(lower)
+    service.process(lower, stored)
     higher = history.create(comparable_check(stored.id, "19.50"), [])
-    service.process(higher)
+    service.process(higher, stored)
 
     saved = alerts.list_for_reservation(stored.id)
     price_drops = [alert for alert in saved if alert.type is AlertType.PRICE_DROP]
@@ -138,10 +149,76 @@ def test_notification_failure_does_not_invalidate_price_check(tmp_path) -> None:
     alerts = AlertRepository(database)
     check = history.create(comparable_check(stored.id, "16.88"), [])
 
-    AlertService(alerts, history, RecordingNotifier(fail=True)).process(check)
+    AlertService(
+        alerts,
+        history,
+        RecordingNotifier(fail=True),
+        SettingsRepository(database),
+        PriceDropBandStateRepository(database),
+    ).process(check, stored)
 
     assert history.latest(stored.id).status is PriceCheckStatus.SUCCESS  # type: ignore[union-attr]
     assert alerts.list_for_reservation(stored.id)[0].delivery_status is DeliveryStatus.FAILED
+
+
+def test_percentage_bands_and_threshold_change_are_persisted_without_replay(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "alerts.db")
+    stored = ReservationRepository(database).create(reservation())
+    history = PriceCheckRepository(database)
+    alerts = AlertRepository(database)
+    notifier = RecordingNotifier()
+    service = AlertService(
+        alerts,
+        history,
+        notifier,
+        SettingsRepository(database),
+        PriceDropBandStateRepository(database),
+    )
+    for current in ("18.00", "17.00", "17.00", "16.00", "18.00", "17.00", "15.00"):
+        check = history.create(comparable_check(stored.id, current), [])
+        service.process(check, stored)
+    drops = [
+        item for item in alerts.list_for_reservation(stored.id) if item.type is AlertType.PRICE_DROP
+    ]
+    assert [item.metadata["band"] for item in drops] == ["4", "3", "1"]
+    SettingsRepository(database).set_price_drop_threshold(Decimal("2"))
+    service.process(history.create(comparable_check(stored.id, "15.00"), []), stored)
+    assert (
+        len(
+            [
+                item
+                for item in alerts.list_for_reservation(stored.id)
+                if item.type is AlertType.PRICE_DROP
+            ]
+        )
+        == 3
+    )
+
+
+def test_home_assistant_notify_payload_uses_generic_entity() -> None:
+    captured: list[tuple[str, dict[str, object]]] = []
+    adapter = HomeAssistantNotificationAdapter(
+        "notify.telegram_bot_roman",
+        transport=lambda path, payload: captured.append((path, payload)),
+    )
+    adapter.deliver(
+        Alert(
+            type=AlertType.PRICE_DROP,
+            severity=AlertSeverity.INFO,
+            title="Price drop",
+            message="Safe message",
+            dedupe_key="test",
+        )
+    )
+    assert captured == [
+        (
+            "/services/notify/send_message",
+            {
+                "target": {"entity_id": "notify.telegram_bot_roman"},
+                "data": {"title": "Price drop", "message": "Safe message"},
+            },
+        )
+    ]
 
 
 def test_scheduler_persists_due_state_skips_inactive_or_expired_and_backs_off(tmp_path) -> None:  # noqa: ANN001

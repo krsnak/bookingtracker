@@ -161,9 +161,20 @@ and CSS content-hash cache-busting were also verified.
 
 ## Phase 10 — Home Assistant notifications and state
 
-1. Add Home Assistant notification/state adapters without coupling core logic
-   to HA APIs.
-2. Verify deduplicated alerts and safe browser/manual-action status exposure.
+1. [ ] Add a platform-independent notification boundary and Home Assistant
+   adapter without coupling core logic to HA APIs. The adapter calls the Core
+   API proxy with `SUPERVISOR_TOKEN`; it does not access Telegram directly.
+2. [ ] Add a global 5% minimum price-drop threshold with an optional per-
+   reservation Decimal override (valid range >0 through 100).
+3. [ ] Create PRICE_DROP alerts only from accepted, comparable exact or
+   explicitly-better matches with matching currency and final-tax basis.
+4. [ ] Persist percentage-band deduplication (5%, 10%, 15%, ... by default).
+   A threshold change establishes a silent historical high-water baseline, so
+   changing configuration cannot immediately replay historical notifications.
+5. [ ] Add Ingress-safe web controls for the global threshold, HA notify entity,
+   per-reservation override, delivery status, and safe retry.
+6. [ ] Verify real delivery through a Home Assistant notify entity on the Pi;
+   Phase 10 remains incomplete until then.
 
 ## Deployment backlog
 
