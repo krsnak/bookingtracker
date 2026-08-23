@@ -4,6 +4,13 @@
 
 Cache-bust BookingTracker CSS with a deterministic content revision.
 
+Production verification completed on Raspberry Pi 4 / Home Assistant OS:
+Phase 9 remote browser recovery worked through authenticated dynamic Ingress,
+with no public VNC/noVNC port. Manual Booking.com login persisted across an
+add-on restart; remote-session completion restored `authenticated`, released
+the manual lease, and returned the runtime to `ready`. The aarch64 persistent
+Chromium smoke, responsive 16:9 noVNC iframe, and CSS cache-busting succeeded.
+
 ## 0.2.3
 
 Make the Ingress noVNC frame responsive at the Xvfb 16:9 aspect ratio.

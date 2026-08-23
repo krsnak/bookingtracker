@@ -369,11 +369,18 @@ memory consumer; a 4 GB Pi is the practical minimum and 8 GB is preferred when
 using manual noVNC. Normal idle operation should have low CPU.
 
 The primary technical risk is native aarch64 Chromium/Playwright availability
-and system dependencies inside the selected add-on base image. Phase 8 is not
-complete until a native arm64 image builds, starts, migrates `/data`, passes its
-health endpoint, cleanly stops, and proves the browser can start. Phase 9 adds
-the Ingress/WebSocket/noVNC test under a non-root base path. These checks never
-require a real Booking login in CI.
+and system dependencies inside the selected add-on base image. Phase 8
+production verification proved a native arm64 image can start, migrate `/data`,
+pass its health endpoint, cleanly stop, and start the browser. Phase 9
+production verification proved the Ingress/WebSocket/noVNC path under a
+non-root base path, persistent manual Booking login, and persistent-context
+browser smoke on the real Pi. These checks never require a real Booking login
+in CI.
+
+Deployment backlog: build and publish a prebuilt ARM64 add-on image through
+GitHub Actions and GHCR, so Home Assistant avoids a lengthy local build for
+each update and users are not left with an installation spinner without
+progress.
 
 ## Reference review
 

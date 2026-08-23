@@ -2,8 +2,8 @@
 
 ## Status
 
-Phases 0–8 are complete. The architecture supports macOS development and
-Raspberry Pi 4 aarch64 Home Assistant production. Phase 9 is next and has not
+Phases 0–9 are complete. The architecture supports macOS development and
+Raspberry Pi 4 aarch64 Home Assistant production. Phase 10 is next and has not
 started.
 
 ## Phase 0 — foundation audit (complete)
@@ -133,20 +133,43 @@ context, a loaded temporary test page, a closed temporary test page, and no
 error. Restarting the add-on logged clean application/server shutdown followed
 by a healthy new process.
 
-## Phase 9 — remote Chromium login (implemented; production gate pending)
+## Phase 9 — remote Chromium login (complete)
 
 1. [x] Add Xvfb, minimal window manager, Chromium, VNC/noVNC/websockify process
    supervision in the add-on layer only.
 2. [x] Provide authenticated, Ingress-relative browser access with no public VNC
    port and a manual lease that blocks automatic navigation.
-3. Validate session persistence, WebSocket forwarding, manual recovery, and
-   clean shutdown on a real Pi. This is the remaining completion gate.
+3. [x] Validate session persistence, WebSocket forwarding, manual recovery,
+   and clean shutdown on a real Pi.
+
+Production validation completed on Raspberry Pi 4 / Home Assistant OS with
+add-on version `0.2.4`. Browser State and remote desktop were `ready`; noVNC
+HTTP assets and its WebSocket both worked through the dynamic Home Assistant
+Ingress prefix, with no public VNC/noVNC port. The user manually opened
+Booking.com and logged in, and ending the remote session detected
+`Authentication: authenticated`, released the manual lease (`False`), and
+returned the remote runtime to `ready`.
+
+The authenticated Booking session persisted through an add-on restart and was
+recognized again by Booking.com. After ending a subsequent remote session, the
+state returned to `authenticated`. The protected browser smoke then succeeded
+in the same persistent context: `architecture: aarch64`,
+`chromium_executable: /usr/bin/chromium`,
+`persistent_context_active: True`, `test_page_loaded: True`,
+`test_page_closed: True`, and `error: None`. The responsive 16:9 noVNC iframe
+and CSS content-hash cache-busting were also verified.
 
 ## Phase 10 — Home Assistant notifications and state
 
 1. Add Home Assistant notification/state adapters without coupling core logic
    to HA APIs.
 2. Verify deduplicated alerts and safe browser/manual-action status exposure.
+
+## Deployment backlog
+
+- Build and publish a prebuilt ARM64 add-on image through GitHub Actions and
+  GHCR so Home Assistant does not perform a long local build for every update
+  or leave the user dependent on an installation spinner without progress.
 
 ## Risks and mitigations
 

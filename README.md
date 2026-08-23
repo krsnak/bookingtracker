@@ -22,7 +22,7 @@ Production state persists in add-on `/data`:
 - `/data/booking_profile/`
 - `/data/logs/`
 
-Phases 1–8 are complete: reservation import, persistent browser service,
+Phases 1–9 are complete: reservation import, persistent browser service,
 fixture-backed rate parsing, exact reservation matching, SQLite history,
 local scheduling with alerts, the local web UI, and Home Assistant add-on
 packaging.
@@ -35,17 +35,28 @@ and the deployment/design details are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Home Assistant production verification
 
-Add-on version `0.1.6` was verified on a Raspberry Pi 4 running Home Assistant
-OS (aarch64). The Ingress dashboard, `static/app.css`, and Browser page each
-returned HTTP 200; Browser navigation remained within the session-specific
-Ingress path. Browser Status reported `ready`.
+Add-on versions `0.1.6` and `0.2.4` were verified on a Raspberry Pi 4 running
+Home Assistant OS (aarch64). Version `0.1.6` verified the Ingress dashboard,
+`static/app.css`, and Browser page each returned HTTP 200; Browser navigation
+remained within the session-specific Ingress path. Browser Status reported
+`ready`.
 
 The protected internal browser smoke action verified the existing persistent
 Playwright context with `success: true`, `architecture: aarch64`, Chromium at
 `/usr/bin/chromium`, an active context, a loaded and closed temporary page, and
 no error. An add-on restart shut down the application/server process cleanly
-and started a healthy replacement process. Phase 9 is the next planned phase;
-it has not started.
+and started a healthy replacement process.
+
+Version `0.2.4` completed Phase 9 production verification: Browser State and
+remote desktop were `ready`; responsive 16:9 noVNC HTTP assets and WebSocket
+worked below the dynamic Ingress prefix; and no VNC/noVNC port was public. A
+user manually logged into Booking.com, then ending the remote session detected
+`Authentication: authenticated`, released the manual lease, and returned the
+remote runtime to `ready`. The login survived an add-on restart and Booking.com
+still recognized it. A subsequent remote-session end again returned
+`authenticated`; the protected browser smoke succeeded in the same persistent
+context on `aarch64` using `/usr/bin/chromium`, with its temporary test page
+loaded and closed and no error. CSS content-hash cache-busting also worked.
 
 ## Local web UI
 
@@ -69,9 +80,9 @@ SQLite, skips inactive or checked-in reservations, and serializes the shared
 browser. Login/CAPTCHA pause automated retries for seven days; transient
 infrastructure failures exponentially back off to 24 hours. Alerts are
 deduplicated and delivered through a local console adapter, leaving a persisted
-price check intact even if delivery fails. Phase 9 remote-browser recovery is
-implemented but has not completed its real Raspberry Pi / Home Assistant
-Ingress validation gate. macOS development does not enable Xvfb, VNC, or noVNC.
+price check intact even if delivery fails. Phase 9 remote-browser recovery has
+completed its real Raspberry Pi / Home Assistant Ingress validation gate. macOS
+development does not enable Xvfb, VNC, or noVNC.
 
 ## Remote/manual browser recovery
 
