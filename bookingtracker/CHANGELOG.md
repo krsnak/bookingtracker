@@ -5,6 +5,11 @@
 Complete Phase 10 production verification and add tag-gated GitHub Actions
 publication of a prebuilt public ARM64 GHCR add-on image.
 
+Production validation completed: the `v0.3.3` workflow published the public
+GHCR image, Home Assistant pulled it without local build, and Pi runtime,
+Ingress, noVNC, persistent authenticated profile, ARM64 smoke, and restart
+succeeded.
+
 ## 0.3.2
 
 Fix Home Assistant Core REST `notify.send_message` payloads to use top-level

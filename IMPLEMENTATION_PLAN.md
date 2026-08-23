@@ -188,6 +188,16 @@ deduplication, CSRF, and persistent browser lifecycle remained unchanged.
   and GHCR so Home Assistant downloads the release image instead of performing
   a long local build for every update.
 
+Production validation completed on Raspberry Pi 4 / Home Assistant OS with
+release `0.3.3`. The `v0.3.3` GitHub Actions workflow finished successfully in
+9m 13s and published public `ghcr.io/krsnak/bookingtracker-addon:0.3.3`.
+Supervisor pulled it without a local `buildx` build; the add-on, Ingress, and
+remote noVNC started successfully. The persistent `/data/booking_profile`
+retained the authenticated Booking session; ending remote control returned
+`Authentication: authenticated`. The ARM64 persistent-context smoke succeeded
+using `/usr/bin/chromium`, with its temporary page loaded and closed and no
+error. Add-on restart was clean and reinitialized browser and remote runtime.
+
 ## Risks and mitigations
 
 | Risk | Effect | Mitigation |

@@ -51,3 +51,12 @@ packaging, and version consistency. Before the first release, make the GHCR
 package public in GitHub Packages. If an update fails to resolve, `ha store
 repair` and a Supervisor restart are emergency diagnostics; roll back by using
 the repository revision pointing to the previous known-good image.
+
+Release `0.3.3` was validated end to end on Raspberry Pi 4 / Home Assistant
+OS. The `v0.3.3` Actions workflow succeeded in 9m 13s and published public
+`ghcr.io/krsnak/bookingtracker-addon:0.3.3`; Supervisor pulled it rather than
+locally building with `buildx`. Ingress and remote noVNC worked, the persistent
+`/data/booking_profile` preserved the logged-in Booking session, remote-session
+completion returned `authenticated`, and the ARM64 `/usr/bin/chromium` smoke
+succeeded with the same persistent context. Restart cleanly reinitialized the
+browser and remote runtime.

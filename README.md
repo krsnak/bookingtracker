@@ -113,6 +113,13 @@ Supervisor resolves the tag from `config.yaml` and downloads it rather than
 building on the Pi. Before the first release, make the linked GHCR package
 public in GitHub Packages; otherwise Supervisor cannot pull it anonymously.
 
+The first prebuilt release was production-validated on Raspberry Pi 4 / Home
+Assistant OS. The `v0.3.3` workflow completed in 9m 13s and published
+`ghcr.io/krsnak/bookingtracker-addon:0.3.3`; Supervisor pulled it without a
+local `buildx` build. The add-on, Ingress, remote noVNC, persistent Booking
+profile/session, authenticated remote-session completion, ARM64 browser smoke,
+and clean restart all succeeded.
+
 Release procedure: update both project versions, update the changelog, push the
 commit, and create a matching protected tag such as `v0.3.3`. The GitHub Actions
 workflow tests, lints, verifies version consistency, and then publishes only

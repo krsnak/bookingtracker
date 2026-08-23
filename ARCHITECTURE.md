@@ -421,6 +421,13 @@ manifest version. For ordinary upgrades use Home Assistant's Update button;
 means selecting the repository revision whose manifest points to the preceding
 known-good immutable image version.
 
+The first end-to-end validation completed with `0.3.3` on Raspberry Pi 4 /
+Home Assistant OS: the 9m 13s `v0.3.3` workflow published the public ARM64
+image, Supervisor pulled it with no local `buildx` build, and the add-on
+started directly from GHCR. Ingress, noVNC, browser profile persistence,
+authenticated session recovery, ARM64 browser smoke, and clean restart all
+worked.
+
 ## Reference review
 
 TripWatch's public implementation usefully demonstrates a shared price-check
