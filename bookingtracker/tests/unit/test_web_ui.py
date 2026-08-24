@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import json
+import logging
 import re
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from html import unescape
 from io import BytesIO
 from pathlib import Path
+from threading import Event, Thread
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from app.alerts.models import AlertType
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
 from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
 from app.reservations.models import Reservation, ReservationCandidate
+from app.scheduling.models import CheckTrigger
 from app.web.app import create_app, static_asset_revision
 from app.web.presentation import (
     format_date,
@@ -69,6 +74,55 @@ class FakeRemoteRuntime:
             manual_lease_active=self.active,
             error=None,
         )
+
+
+class ManualCheckPipeline:
+    def __init__(self, history, status: PriceCheckStatus, error: str | None = None) -> None:  # noqa: ANN001,E501
+        self.history = history
+        self.status = status
+        self.error = error
+        self.calls = 0
+
+    def check(self, item, *, run_id: str) -> PriceCheckRecord:  # noqa: ANN001
+        self.calls += 1
+        return self.history.create(
+            PriceCheckRecord(
+                reservation_id=item.id,
+                run_id=run_id,
+                status=self.status,
+                error=self.error,
+            ),
+            [],
+        )
+
+
+class BlockingManualCheckPipeline(ManualCheckPipeline):
+    def __init__(self, history) -> None:  # noqa: ANN001
+        super().__init__(history, PriceCheckStatus.TIMEOUT)
+        self.started = Event()
+        self.release = Event()
+
+    def check(self, item, *, run_id: str) -> PriceCheckRecord:  # noqa: ANN001
+        self.started.set()
+        assert self.release.wait(timeout=2)
+        return super().check(item, run_id=run_id)
+
+
+def checkable_reservation(*, active: bool = True) -> Reservation:
+    return Reservation(
+        property_name="STORHAUGEN GARD",
+        booking_url="https://www.booking.com/hotel/no/example.html",
+        check_in=date(2026, 9, 18),
+        check_out=date(2026, 9, 19),
+        adults=2,
+        rooms_count=1,
+        room_type="Dvoulůžkový pokoj",
+        booked_total_price=Decimal("1320.54"),
+        currency="NOK",
+        source_text="Sanitized fixture",
+        extraction_confidence=1,
+        active=active,
+    )
 
 
 def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: ANN001
@@ -192,6 +246,7 @@ def test_dashboard_and_detail_render_czech_check_diagnostics_under_ingress(tmp_p
     assert "Doba trvání: 2 s" in detail.text
     assert "Stránka se načetla, ale nepodařilo se z ní bezpečně přečíst" in detail.text
     assert "Počet po sobě jdoucích neúspěchů: 3" in detail.text
+    assert "Zkontrolovat nyní" in detail.text
     assert f'href="{prefix}/">← Zpět na rezervace</a>' in detail.text
     assert f'action="{prefix}/reservations/{stored.id}/check"' in detail.text
 
@@ -694,6 +749,183 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
     assert "aspect-ratio:16/9" in stylesheet
 
 
+@pytest.mark.parametrize(
+    ("status", "flash"),
+    [
+        (PriceCheckStatus.SUCCESS, "Kontrola ceny byla dokončena."),
+        (
+            PriceCheckStatus.NO_MATCH,
+            "Kontrola byla dokončena, ale nebyla nalezena bezpečně "
+            "porovnatelná nabídka.",
+        ),
+        (
+            PriceCheckStatus.TIMEOUT,
+            "Kontrolu ceny se nepodařilo dokončit. Podrobnosti jsou uvedeny níže.",
+        ),
+        (
+            PriceCheckStatus.PARSER_ERROR,
+            "Kontrolu ceny se nepodařilo dokončit. Podrobnosti jsou uvedeny níže.",
+        ),
+        (
+            PriceCheckStatus.LOGGED_OUT,
+            "Pro pokračování je nutné přihlášení na Booking.com.",
+        ),
+        (
+            PriceCheckStatus.CAPTCHA_REQUIRED,
+            "Booking.com vyžaduje ruční ověření CAPTCHA.",
+        ),
+    ],
+)
+def test_check_now_persists_result_logs_once_and_shows_czech_flash(
+    tmp_path, caplog, status, flash
+) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    pipeline = ManualCheckPipeline(app.state.history, status)
+    app.state.runner.checks = pipeline
+    logger = logging.getLogger("bookingtracker.checks")
+    logger.addHandler(caplog.handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/reservations/{stored.id}/check",
+                data={"csrf_token": app.state.csrf},
+            )
+    finally:
+        logger.removeHandler(caplog.handler)
+
+    assert response.status_code == 200
+    assert flash in response.text
+    persisted = app.state.history.latest(stored.id)
+    assert persisted is not None and persisted.status is status
+    assert persisted.started_at is not None and persisted.finished_at is not None
+    assert persisted.duration_ms is not None and persisted.next_check_at is not None
+    assert persisted.consecutive_failure_count == (0 if status is PriceCheckStatus.SUCCESS else 1)
+    records = [record for record in caplog.records if record.name == "bookingtracker.checks"]
+    assert len(records) == 1
+    payload = json.loads(records[0].message)
+    assert payload["event"] == "booking_check_completed"
+    assert payload["property_name"] == "STORHAUGEN GARD"
+    assert payload["status"] == status.value
+    assert payload["reason_code"] == (
+        persisted.reason_code.value if persisted.reason_code else None
+    )
+
+
+def test_check_now_sanitizes_stdout_and_does_not_create_price_drop_on_failure(
+    tmp_path, caplog
+) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    app.state.runner.checks = ManualCheckPipeline(
+        app.state.history,
+        PriceCheckStatus.PARSER_ERROR,
+        "PIN: 1234 token=secret guest@example.com <html>private</html>",
+    )
+    logger = logging.getLogger("bookingtracker.checks")
+    logger.addHandler(caplog.handler)
+    try:
+        with TestClient(app) as client:
+            client.post(
+                f"/reservations/{stored.id}/check",
+                data={"csrf_token": app.state.csrf},
+            )
+    finally:
+        logger.removeHandler(caplog.handler)
+    logged = "\n".join(
+        record.message for record in caplog.records if record.name == "bookingtracker.checks"
+    ).casefold()
+    assert "booking_check_completed" in logged
+    assert all(
+        value not in logged
+        for value in ("1234", "secret", "guest@example", "<html>", "private")
+    )
+    assert not any(
+        alert.type is AlertType.PRICE_DROP
+        for alert in app.state.alerts.list_for_reservation(stored.id)
+    )
+
+
+def test_check_now_rejects_invalid_csrf_missing_and_inactive_reservations(tmp_path) -> None:  # noqa: ANN001,E501
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+    )
+    inactive = app.state.reservations.create(checkable_reservation(active=False))
+    with TestClient(app) as client:
+        denied = client.post(
+            f"/reservations/{inactive.id}/check", data={"csrf_token": "invalid"}
+        )
+        get_attempt = client.get(f"/reservations/{inactive.id}/check")
+        missing = client.post(
+            "/reservations/00000000-0000-0000-0000-000000000001/check",
+            data={"csrf_token": app.state.csrf},
+        )
+        inactive_response = client.post(
+            f"/reservations/{inactive.id}/check", data={"csrf_token": app.state.csrf}
+        )
+    assert denied.status_code == 403
+    assert get_attempt.status_code == 405
+    assert missing.status_code == 404
+    assert inactive_response.status_code == 200
+    assert "Neaktivní rezervaci nelze zkontrolovat." in inactive_response.text
+    assert app.state.history.latest(inactive.id) is None
+
+
+def test_check_now_returns_immediately_when_shared_runner_is_busy(tmp_path) -> None:  # noqa: ANN001,E501
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    pipeline = BlockingManualCheckPipeline(app.state.history)
+    app.state.runner.checks = pipeline
+    running = Thread(
+        target=lambda: app.state.runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+    )
+    running.start()
+    assert pipeline.started.wait(timeout=1)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/reservations/{stored.id}/check",
+                data={"csrf_token": app.state.csrf},
+            )
+        assert response.status_code == 200
+        assert "Kontrola této rezervace právě probíhá." in response.text
+        assert pipeline.calls == 0
+    finally:
+        pipeline.release.set()
+        running.join(timeout=2)
+    assert not running.is_alive()
+    assert pipeline.calls == 1
+
+
+def test_check_now_uses_ingress_aware_redirect(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    app.state.runner.checks = ManualCheckPipeline(app.state.history, PriceCheckStatus.SUCCESS)
+    prefix = "/api/hassio_ingress/manual-check"
+    with TestClient(app) as client:
+        response = client.post(
+            f"/reservations/{stored.id}/check",
+            headers={"X-Ingress-Path": prefix},
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=False,
+        )
+    assert response.status_code == 303
+    assert response.headers["location"] == f"{prefix}/reservations/{stored.id}"
+
+
 def test_manual_lease_rejects_check_now_without_persisting_history(tmp_path) -> None:  # noqa: ANN001
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
@@ -718,5 +950,9 @@ def test_manual_lease_rejects_check_now_without_persisting_history(tmp_path) -> 
         response = client.post(
             f"/reservations/{reservation.id}/check", data={"csrf_token": app.state.csrf}
         )
-        assert response.status_code == 409
+        assert response.status_code == 200
+        assert (
+            "Automatickou kontrolu nelze spustit během otevřené vzdálené relace."
+            in response.text
+        )
         assert app.state.history.latest(reservation.id) is None

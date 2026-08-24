@@ -61,6 +61,25 @@ def check_result_text(record: PriceCheckRecord) -> str:
     return "Kontrolu se nepodařilo dokončit"
 
 
+def manual_check_flash(record: PriceCheckRecord) -> str:
+    if record.status is PriceCheckStatus.SUCCESS:
+        return "Kontrola ceny byla dokončena."
+    if record.status is PriceCheckStatus.LOGGED_OUT:
+        return "Pro pokračování je nutné přihlášení na Booking.com."
+    if record.status is PriceCheckStatus.CAPTCHA_REQUIRED:
+        return "Booking.com vyžaduje ruční ověření CAPTCHA."
+    if record.status in {
+        PriceCheckStatus.NO_MATCH,
+        PriceCheckStatus.AMBIGUOUS,
+        PriceCheckStatus.NO_AVAILABILITY,
+    }:
+        return (
+            "Kontrola byla dokončena, ale nebyla nalezena bezpečně "
+            "porovnatelná nabídka."
+        )
+    return "Kontrolu ceny se nepodařilo dokončit. Podrobnosti jsou uvedeny níže."
+
+
 def format_check_datetime(value: datetime | None) -> str:
     if value is None:
         return "Neuvedeno"

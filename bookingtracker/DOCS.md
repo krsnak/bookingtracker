@@ -3,12 +3,10 @@
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
 
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
-— is **IN PROGRESS**; Phase 11A is **IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING**,
-Phase 11B is **NEXT** after that validation, and Phases 11C–11D are **NOT STARTED**. The plan is
-split into independently releasable parts: Czech navigation and compact
-typography in 0.5.0, the reservation-card overview in 0.5.1, safe local property
-image uploads in 0.5.2, and reservation detail with local price history in
-0.5.3. No Phase 11 behavior is implemented yet.
+— is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
+The diagnostic 0.5.1 intermediate release is **IMPLEMENTATION COMPLETE, PRODUCTION
+VALIDATION PENDING**. Phase 11B is planned for 0.5.2, Phase 11C for 0.5.3, and
+Phase 11D for 0.5.4.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
@@ -17,6 +15,20 @@ and retain the accepted exact-match gate before showing any price direction.
 Images will be validated, optimized, and stored only below `/data`; missing
 images use a local placeholder. CSRF, the persistent browser lifecycle,
 scheduler, and Home Assistant/Telegram notifications remain unchanged.
+
+Version `0.5.1` adds the CSRF-protected, Ingress-aware `Zkontrolovat nyní` action. It uses the
+same non-overlapping shared runner, persistent browser context, exact matcher, schedule state,
+history, alert rules, and deduplication as the scheduler. Completed manual and scheduled checks
+emit one sanitized `booking_check_completed` JSON event to stdout. Busy and active remote-lease
+states return safe Czech messages without creating a check. Production validation is pending:
+install 0.5.1, close the remote lease, click STORHAUGEN GARD once, confirm the refreshed detail,
+and run:
+
+```bash
+ha apps logs 96d726fc_bookingtracker | tail -n 200 | grep -Ei 'STORHAUGEN|check_result|reason_code'
+```
+
+Expect exactly one safe event and no false price delta or PRICE_DROP on failure.
 
 Version `0.5.0` adds request-aware Czech navigation, logical back links, an explicit internal-status
 presentation mapping, Czech date/money/boolean formatting, and content-hashed `ui.css` compact

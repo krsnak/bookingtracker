@@ -22,5 +22,7 @@ textarea { min-height: 9rem; }
 .ui-back a { font-weight: 700; }
 .ui-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .7rem 0; }
 .ui-actions form { margin: 0; }
+.ui-primary-action { background: #0b6e3f; font-weight: 700; box-shadow: 0 2px 5px #0003; }
+.ui-primary-action:disabled { background: #718096; box-shadow: none; }
 details.ui-diagnostics { margin-top: .8rem; }
 @media (max-width: 699px) { h1 { font-size: 24px; } main { padding: .75rem; } nav { justify-content: flex-start; } nav a { padding: .4rem .5rem; } }

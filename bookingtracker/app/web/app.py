@@ -59,13 +59,14 @@ from app.presentation import (
     enum_value,
     format_check_datetime,
     format_duration,
+    manual_check_flash,
 )
 from app.pricing.check_service import PriceCheckService
 from app.pricing.service import ComparablePriceService
 from app.reservations.extractor import ReservationExtractor
 from app.reservations.import_document import ImportDocumentError, pdf_document
 from app.reservations.models import Reservation
-from app.scheduling.models import CheckTrigger
+from app.scheduling.models import CheckRunBlockReason, CheckTrigger
 from app.scheduling.policy import SchedulePolicy
 from app.scheduling.service import CheckRunner, ReservationScheduler
 from app.web.presentation import (
@@ -576,9 +577,32 @@ def create_app(
     @app.post("/reservations/{reservation_id}/check", name="check_now")
     def check_now(request: Request, reservation_id: str, csrf_token: str = Form()):
         csrf(csrf_token)
-        if lease.active:
-            raise HTTPException(409, "Manual remote session is active; end it before checking.")
-        actual_runner.run_check(UUID(reservation_id), CheckTrigger.MANUAL)
+        try:
+            item_id = UUID(reservation_id)
+        except ValueError as error:
+            raise HTTPException(404, "Rezervace nebyla nalezena.") from error
+        outcome = (
+            None
+            if lease.active
+            else actual_runner.try_run_check(item_id, CheckTrigger.MANUAL)
+        )
+        if outcome is None:
+            flash = (
+                "Automatickou kontrolu nelze spustit během otevřené vzdálené relace."
+            )
+        elif outcome.record is not None:
+            flash = manual_check_flash(outcome.record)
+        elif outcome.blocked_reason is CheckRunBlockReason.BUSY:
+            flash = "Kontrola této rezervace právě probíhá."
+        elif outcome.blocked_reason is CheckRunBlockReason.MANUAL_SESSION_ACTIVE:
+            flash = (
+                "Automatickou kontrolu nelze spustit během otevřené vzdálené relace."
+            )
+        elif outcome.blocked_reason is CheckRunBlockReason.RESERVATION_INACTIVE:
+            flash = "Neaktivní rezervaci nelze zkontrolovat."
+        else:
+            raise HTTPException(404, "Rezervace nebyla nalezena.")
+        app.state.reservation_flash[reservation_id] = flash
         return RedirectResponse(
             url_for_request(request, "reservation_detail", reservation_id=reservation_id),
             status_code=303,

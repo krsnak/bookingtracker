@@ -390,6 +390,20 @@ It may use TripWatch's information density as visual inspiration, but must not
 copy its brand or source code. No cloud frontend, external analytics, or direct
 frontend access to the browser, database, or Booking DOM is introduced.
 
+Phase 11A / 0.5.0 is production-complete. The 0.5.1 diagnostic intermediate release adds no
+second pipeline or browser. Its CSRF-protected POST action calls `CheckRunner.try_run_check`,
+which attempts the same process-wide lock used by scheduled checks without waiting. The lock
+serializes all navigation through the one persistent browser context. The existing manual lease
+is checked both before and after lock acquisition, so remote user control and automation cannot
+overlap. Busy, leased, missing, and inactive outcomes are typed and do not create history rows.
+
+Every completed scheduled or manual attempt follows the same policy, atomic check/schedule
+persistence, exact matcher, alert service, and deduplication. It emits one sanitized stdout JSON
+event named `booking_check_completed`. No diagnostic HTTP endpoint exposes SQLite or raw page
+data. Production validation for 0.5.1 is pending on STORHAUGEN GARD using the exact command and
+procedure documented in `README.md`. Reservation overview, images, and expanded detail/history
+are deferred respectively to 0.5.2, 0.5.3, and 0.5.4.
+
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every
 known value has an explicit presentation mapping; an unknown value renders as

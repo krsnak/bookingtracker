@@ -2,11 +2,20 @@
 
 ## Unreleased
 
+## 0.5.1
+
+- Added a prominent CSRF-protected, Ingress-aware manual reservation check through the existing
+  serialized runner and persistent browser context.
+- Added non-blocking busy/manual-lease outcomes, Czech result flashes, persisted diagnostics, and
+  one sanitized `booking_check_completed` stdout event for every completed manual or scheduled run.
+- Preserved exact-match pricing, failure/backoff state, alert thresholds and deduplication; Raspberry
+  Pi production validation with STORHAUGEN GARD remains pending.
+
 ## 0.5.0
 
 - Added Czech request-aware global navigation, active-page semantics, logical back links, and PRG confirmation on reservation save.
 - Added explicit Czech presentation helpers for statuses, dates, times, money, and boolean values.
-- Added compact, content-hashed `ui.css`; Phase 11A implementation is complete pending Raspberry Pi production validation.
+- Added compact, content-hashed `ui.css`; Phase 11A is complete after Raspberry Pi production validation.
 
 ## 0.4.3
 

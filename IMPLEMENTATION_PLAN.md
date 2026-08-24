@@ -23,15 +23,17 @@ production-complete.
 ## Status
 
 Phases 0–10 are complete. The architecture supports macOS development and
-Raspberry Pi 4 aarch64 Home Assistant production. Phase 11 is planned: Phase
-11A is next, and Phases 11B–11D are not started.
+Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
+after production validation. The diagnostic 0.5.1 implementation is complete
+with production validation pending; Phases 11B–11D are not started.
 
 | Scope | Status |
 | --- | --- |
 | Phases 0–10 | COMPLETE |
 | PDF import 0.4.3 | PRODUCTION-FUNCTIONAL, MONITORED |
-| Phase 11 | PLANNED |
-| Phase 11A | NEXT |
+| Phase 11 | IN PROGRESS |
+| Phase 11A / 0.5.0 | COMPLETE |
+| Diagnostic 0.5.1 | IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING |
 | Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
@@ -216,10 +218,11 @@ Goal: deliver a fully Czech, logically navigable, compact interface inspired
 by TripWatch's information density without copying its brand or source code.
 BookingTracker remains a local, single-user Home Assistant application. Phases
 0–10 remain complete, the production PDF import from 0.4.3 remains functional
-and monitored. Phase 11A is implemented and awaits production validation; later
-Phase 11 items have not started.
+and monitored. Phase 11A / 0.5.0 is complete after production validation. The
+diagnostic 0.5.1 implementation is complete and awaits the STORHAUGEN GARD Pi
+validation; later Phase 11 items have not started.
 
-### Phase 11A — navigation, Czech language, and typography (implementation complete; production validation pending, 0.5.0)
+### Phase 11A — navigation, Czech language, and typography (complete, 0.5.0)
 
 1. [x] Make `Rezervace` the main page and provide global navigation for
    `Rezervace`, `Přidat rezervaci`, `Upozornění`, `Nastavení`, and
@@ -240,7 +243,23 @@ Phase 11 items have not started.
    larger than 28 px, card titles 17–18 px, metadata 12–13 px, compact spacing
    and controls, accessible focus states, keyboard operation, and mobile layout.
 
-### Phase 11B — reservation overview (not started; planned 0.5.1)
+### Diagnostic intermediate release (implementation complete; production validation pending, 0.5.1)
+
+1. [x] Persist typed reason codes, sanitized details, duration, failure count,
+   and next-check state for every attempt.
+2. [x] Present check outcomes and alerts in Czech and emit one safe structured
+   stdout event per completed check.
+3. [x] Add prominent `Zkontrolovat nyní` POST action using the shared runner,
+   persistent browser context, exact matcher, persistence, and alert policy.
+4. [x] Reject concurrent browser navigation and active manual leases without
+   waiting, preserve CSRF and arbitrary Ingress prefixes, and show Czech results.
+5. [ ] Validate one real STORHAUGEN GARD attempt on Raspberry Pi 4: install
+   0.5.1, close the remote lease, click once, inspect `Poslední kontrola`, then run
+   `ha apps logs 96d726fc_bookingtracker | tail -n 200 | grep -Ei 'STORHAUGEN|check_result|reason_code'`.
+   Confirm exactly one sanitized `booking_check_completed` event, persistence
+   after reload/restart, and no false price delta or PRICE_DROP on failure.
+
+### Phase 11B — reservation overview (not started; planned 0.5.2)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -257,7 +276,7 @@ Phase 11 items have not started.
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.2)
+### Phase 11C — property images (not started; planned 0.5.3)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -272,12 +291,12 @@ Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (not started; planned 0.5.3)
+### Phase 11D — reservation detail and price history (not started; planned 0.5.4)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,
    concise cancellation, and payment conditions.
-2. [ ] Provide `Zkontrolovat cenu`, `Upravit`, `Otevřít na Booking.com`,
+2. [ ] Provide `Zkontrolovat nyní`, `Upravit`, `Otevřít na Booking.com`,
    `Deaktivovat`, and `Zpět na rezervace` actions.
 3. [ ] Render a simple local chart without an external CDN or cloud frontend.
    Keep technical diagnostics closed in a separate detail and apply the same

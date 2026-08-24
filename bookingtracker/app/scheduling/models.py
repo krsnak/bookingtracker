@@ -8,10 +8,24 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.pricing.models import PriceCheckRecord
+
 
 class CheckTrigger(StrEnum):
     MANUAL = "manual"
     SCHEDULED = "scheduled"
+
+
+class CheckRunBlockReason(StrEnum):
+    BUSY = "busy"
+    MANUAL_SESSION_ACTIVE = "manual_session_active"
+    RESERVATION_NOT_FOUND = "reservation_not_found"
+    RESERVATION_INACTIVE = "reservation_inactive"
+
+
+class CheckRunOutcome(BaseModel):
+    record: PriceCheckRecord | None = None
+    blocked_reason: CheckRunBlockReason | None = None
 
 
 class ScheduleState(BaseModel):

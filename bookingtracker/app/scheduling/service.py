@@ -15,7 +15,12 @@ from app.db.repository import ReservationRepository, ScheduleStateRepository
 from app.pricing.check_service import PriceCheckService
 from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
 from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
-from app.scheduling.models import CheckTrigger, ScheduleState
+from app.scheduling.models import (
+    CheckRunBlockReason,
+    CheckRunOutcome,
+    CheckTrigger,
+    ScheduleState,
+)
 from app.scheduling.policy import SchedulePolicy
 
 LOGGER = logging.getLogger("bookingtracker.checks")
@@ -49,21 +54,46 @@ class CheckRunner:
         self._lock = Lock()
 
     def run_check(self, reservation_id: UUID, trigger: CheckTrigger) -> PriceCheckRecord | None:
+        return self._run_check(reservation_id, trigger, wait_for_lock=True).record
+
+    def try_run_check(self, reservation_id: UUID, trigger: CheckTrigger) -> CheckRunOutcome:
+        """Start a check only when the shared browser runner is immediately available."""
+        return self._run_check(reservation_id, trigger, wait_for_lock=False)
+
+    def _run_check(
+        self,
+        reservation_id: UUID,
+        trigger: CheckTrigger,
+        *,
+        wait_for_lock: bool,
+    ) -> CheckRunOutcome:
         if self.manual_session_active():
-            return None
-        with self._lock:
+            return CheckRunOutcome(blocked_reason=CheckRunBlockReason.MANUAL_SESSION_ACTIVE)
+        if not self._lock.acquire(blocking=wait_for_lock):
+            return CheckRunOutcome(blocked_reason=CheckRunBlockReason.BUSY)
+        try:
             if self.manual_session_active():
-                return None
+                return CheckRunOutcome(
+                    blocked_reason=CheckRunBlockReason.MANUAL_SESSION_ACTIVE
+                )
             reservation = self.reservations.get(reservation_id)
-            if reservation is None or not reservation.active:
-                return None
+            if reservation is None:
+                return CheckRunOutcome(
+                    blocked_reason=CheckRunBlockReason.RESERVATION_NOT_FOUND
+                )
+            if not reservation.active:
+                return CheckRunOutcome(
+                    blocked_reason=CheckRunBlockReason.RESERVATION_INACTIVE
+                )
             now = self.clock()
             if (
                 trigger is CheckTrigger.SCHEDULED
                 and reservation.check_in
                 and reservation.check_in <= now.date()
             ):
-                return None
+                return CheckRunOutcome(
+                    blocked_reason=CheckRunBlockReason.RESERVATION_INACTIVE
+                )
             try:
                 record = self.checks.check(reservation, run_id=f"{trigger}:{reservation.id}")
             except Exception as error:
@@ -117,12 +147,13 @@ class CheckRunner:
                 }
             )
             self.checks.history.complete_with_schedule(record, updated)
-            if trigger is CheckTrigger.SCHEDULED:
-                self._log_completed_check(record, reservation.property_name)
+            self._log_completed_check(record, reservation.property_name)
             self.alerts.process(
                 record, reservation, consecutive_failures=updated.consecutive_failures
             )
-            return record
+            return CheckRunOutcome(record=record)
+        finally:
+            self._lock.release()
 
     @staticmethod
     def _log_completed_check(record: PriceCheckRecord, property_name: str | None) -> None:

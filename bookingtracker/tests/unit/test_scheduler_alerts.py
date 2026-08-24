@@ -394,3 +394,35 @@ def test_manual_remote_lease_blocks_scheduler_without_a_price_check(tmp_path) ->
     assert runner.run_check(stored.id, CheckTrigger.MANUAL) is None
     assert pipeline.calls == []
     assert history.latest(stored.id) is None
+
+
+def test_manual_failure_alert_is_deduplicated_against_following_scheduler_run(
+    tmp_path,
+) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "manual-dedupe.db")
+    reservations = ReservationRepository(database)
+    stored = reservations.create(reservation(active=True))
+    history = PriceCheckRepository(database)
+    pipeline = StaticPipeline(history, PriceCheckStatus.TIMEOUT)
+    alerts = AlertRepository(database)
+    runner = CheckRunner(
+        reservations,
+        pipeline,  # type: ignore[arg-type]
+        ScheduleStateRepository(database),
+        SchedulePolicy(jitter_seconds=lambda maximum: 0),
+        AlertService(alerts, history, RecordingNotifier(), failure_threshold=3),
+        clock=lambda: datetime(2026, 8, 24, 12, tzinfo=UTC),
+    )
+
+    for _ in range(3):
+        runner.run_check(stored.id, CheckTrigger.MANUAL)
+    runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+    pipeline.status = PriceCheckStatus.SUCCESS
+    succeeded = runner.run_check(stored.id, CheckTrigger.MANUAL)
+
+    saved = alerts.list_for_reservation(stored.id)
+    assert sum(alert.type is AlertType.CHECK_FAILED for alert in saved) == 1
+    assert not any(alert.type is AlertType.PRICE_DROP for alert in saved)
+    assert succeeded is not None and succeeded.consecutive_failure_count == 0
+    state = runner.schedules.get(stored.id)
+    assert state is not None and state.consecutive_failures == 0
