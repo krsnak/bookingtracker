@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from html import unescape
 from io import BytesIO
@@ -14,6 +14,13 @@ from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
 from app.reservations.models import Reservation, ReservationCandidate
 from app.web.app import create_app, static_asset_revision
+from app.web.presentation import (
+    format_date,
+    format_date_range,
+    format_datetime,
+    format_money,
+    status_label,
+)
 from fastapi.testclient import TestClient
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -78,7 +85,8 @@ def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: A
             f'href="/bookingtracker-test/{path}"' in dashboard.text
             for path in ("reservations/new", "alerts", "settings", "browser")
         )
-        assert "<nav>" in dashboard.text and "BookingTracker" in dashboard.text
+        assert 'aria-label="Hlavní navigace"' in dashboard.text
+        assert "BookingTracker" in dashboard.text
         form = client.get("/bookingtracker-test/reservations/new")
         token = app.state.csrf
         extracted = client.post(
@@ -101,6 +109,38 @@ def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: A
         assert css_link.endswith(f"?v={static_asset_revision(app_css)}")
         assert client.get("/bookingtracker-test/static/app.css").status_code == 200
         assert "review.css" not in dashboard.text
+
+
+def test_czech_navigation_back_links_and_presentation_helpers(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    prefix = "/api/hassio_ingress/czech-ui"
+    headers = {"X-Ingress-Path": prefix}
+    with TestClient(app) as client:
+        for path, active in (
+            ("/", "Rezervace"),
+            ("/reservations/new", "Přidat rezervaci"),
+            ("/alerts", "Upozornění"),
+            ("/settings", "Nastavení"),
+            ("/browser", "Prohlížeč"),
+        ):
+            response = client.get(path, headers=headers)
+            assert response.status_code == 200
+            assert response.text.count(prefix) >= 5
+            assert response.text.count(prefix + prefix) == 0
+            assert f'aria-current="page">{active}</a>' in response.text
+        assert f'href="{prefix}/">BookingTracker</a>' in client.get("/", headers=headers).text
+        assert f'href="{prefix}/">← Zpět na rezervace</a>' in client.get(
+            "/settings", headers=headers
+        ).text
+    assert status_label("ready") == "Připraven"
+    assert status_label("parser_error") == "Nepodařilo se přečíst nabídku"
+    assert status_label("future_state") == "Neznámý stav"
+    assert format_date(date(2026, 8, 26)) == "26. srpna 2026"
+    assert format_date_range(date(2026, 8, 26), date(2026, 8, 27)) == "26.–27. srpna 2026"
+    assert format_datetime(datetime(2026, 8, 24, 23, 59)) == "24. srpna 2026 23:59"
+    assert format_money(Decimal("1320.54"), "NOK") == "1 320,54 NOK"
 
 
 def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tmp_path) -> None:  # noqa: ANN001
@@ -217,10 +257,13 @@ def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path)
             f"{prefix}/static/app.css?v={static_asset_revision(static_root / 'app.css')}"
         )
         assert links[1] == (
+            f"{prefix}/static/ui.css?v={static_asset_revision(static_root / 'ui.css')}"
+        )
+        assert links[2] == (
             f"{prefix}/static/review.css?v={static_asset_revision(static_root / 'review.css')}"
         )
         assert all(link.count(prefix) == 1 for link in links)
-        assert len(links) == 2
+        assert len(links) == 3
     css = (Path(__file__).parents[2] / "app" / "web" / "static" / "review.css").read_text()
     assert "max-width: 800px" in css and "repeat(2, minmax(0, 1fr))" in css
     assert "grid-template-columns: 1fr" in css
@@ -335,7 +378,7 @@ def test_notification_test_uses_saved_entity_with_ingress_prg_and_no_side_effect
     with TestClient(app) as client:
         settings = client.get("/settings", headers=headers)
         assert f'action="{prefix}/settings/notifications/test"' in settings.text
-        assert "Send test notification" in settings.text
+        assert "Odeslat testovací upozornění" in settings.text
         assert client.post("/settings/notifications/test", headers=headers).status_code == 403
         response = client.post(
             "/settings/notifications/test",
@@ -357,9 +400,9 @@ def test_notification_test_uses_saved_entity_with_ingress_prg_and_no_side_effect
             )
         ]
         result = client.get("/settings", headers=headers)
-        assert "Test notification sent successfully." in result.text
+        assert "Testovací upozornění bylo odesláno." in result.text
         assert (
-            "Test notification sent successfully."
+            "Testovací upozornění bylo odesláno."
             not in client.get("/settings", headers=headers).text
         )
         assert app.state.reservations.list_active() == []
@@ -381,14 +424,14 @@ def test_notification_test_handles_missing_invalid_and_sanitized_errors(tmp_path
             data={"csrf_token": app.state.csrf},
             follow_redirects=True,
         )
-        assert "valid Home Assistant notify entity must be saved" in missing.text
+        assert "Nejprve uložte platnou entitu upozornění Home Assistant." in missing.text
         app.state.settings.set_notify_entity("bad.entity")
         invalid = client.post(
             "/settings/notifications/test",
             data={"csrf_token": app.state.csrf},
             follow_redirects=True,
         )
-        assert "valid Home Assistant notify entity must be saved" in invalid.text
+        assert "Nejprve uložte platnou entitu upozornění Home Assistant." in invalid.text
 
     failing = HomeAssistantNotificationAdapter(
         lambda: "notify.roman",

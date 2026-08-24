@@ -210,32 +210,33 @@ integration. Home Assistant owns the bot token and chat configuration;
 BookingTracker stores neither. The existing exact-match/comparable gate, band
 deduplication, CSRF, and persistent browser lifecycle remained unchanged.
 
-## Phase 11 — Czech frontend and reservation dashboard (planned)
+## Phase 11 — Czech frontend and reservation dashboard (in progress)
 
 Goal: deliver a fully Czech, logically navigable, compact interface inspired
 by TripWatch's information density without copying its brand or source code.
 BookingTracker remains a local, single-user Home Assistant application. Phases
 0–10 remain complete, the production PDF import from 0.4.3 remains functional
-and monitored, and no Phase 11 item is implemented yet.
+and monitored. Phase 11A is implemented and awaits production validation; later
+Phase 11 items have not started.
 
-### Phase 11A — navigation, Czech language, and typography (next; planned 0.5.0)
+### Phase 11A — navigation, Czech language, and typography (implementation complete; production validation pending, 0.5.0)
 
-1. [ ] Make `Rezervace` the main page and provide global navigation for
+1. [x] Make `Rezervace` the main page and provide global navigation for
    `Rezervace`, `Přidat rezervaci`, `Upozornění`, `Nastavení`, and
    `Prohlížeč`, with a visible active item.
-2. [ ] Add logical `← Zpět` navigation to detail, import, review, settings, and
+2. [x] Add logical `← Zpět` navigation to detail, import, review, settings, and
    error pages; keep every link and redirect request-aware under any Ingress or
    configured base path.
-3. [ ] Redirect a successfully saved reservation to its detail or the
+3. [x] Redirect a successfully saved reservation to its detail or the
    reservation overview.
-4. [ ] Translate all user-facing labels, buttons, validation, dates, states,
+4. [x] Translate all user-facing labels, buttons, validation, dates, states,
    and empty values into Czech. Map internal statuses such as `ready`,
    `running`, `timeout`, `parser_error`, and `Not safely comparable` in the
    presentation layer; render an unmapped state as `Neznámý stav` while
    retaining its raw value only in sanitized diagnostics/logs.
-5. [ ] Move browser and scheduler technical data out of the primary overview
+5. [x] Move browser and scheduler technical data out of the primary overview
    into diagnostics/settings.
-6. [ ] Introduce shared compact design tokens: body 14–15 px, desktop H1 no
+6. [x] Introduce shared compact design tokens: body 14–15 px, desktop H1 no
    larger than 28 px, card titles 17–18 px, metadata 12–13 px, compact spacing
    and controls, accessible focus states, keyboard operation, and mobile layout.
 

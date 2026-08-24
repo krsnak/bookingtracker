@@ -60,6 +60,14 @@ from app.reservations.models import Reservation
 from app.scheduling.models import CheckTrigger
 from app.scheduling.policy import SchedulePolicy
 from app.scheduling.service import CheckRunner, ReservationScheduler
+from app.web.presentation import (
+    format_bool,
+    format_date,
+    format_date_range,
+    format_datetime,
+    format_money,
+    status_label,
+)
 from app.web.websocket_bridge import bridge_websocket_frames
 
 ROOT = Path(__file__).parent
@@ -194,6 +202,7 @@ def create_app(
     app.state.settings = settings
     app.state.notification_adapter = notifier
     app.state.settings_flash: str | None = None
+    app.state.reservation_flash: dict[str, str] = {}
     app.state.browser = browser
     app.state.runner = actual_runner
     app.state.scheduler = scheduler
@@ -203,7 +212,8 @@ def create_app(
     app.state.csrf = secrets.token_urlsafe(24)
     app.state.pending: dict[str, object] = {}
     app.state.static_css_revisions = {
-        name: static_asset_revision(ROOT / "static" / name) for name in ("app.css", "review.css")
+        name: static_asset_revision(ROOT / "static" / name)
+        for name in ("app.css", "ui.css", "review.css")
     }
     app.state.static_css_revision = app.state.static_css_revisions["app.css"]
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -234,6 +244,13 @@ def create_app(
                 "url": lambda route_name, **params: url_for_request(request, route_name, **params),
                 "static_url": static_url,
                 "csrf": app.state.csrf,
+                "current_route": getattr(request.scope.get("route"), "name", ""),
+                "status_label": status_label,
+                "format_date": format_date,
+                "format_date_range": format_date_range,
+                "format_datetime": format_datetime,
+                "format_money": format_money,
+                "format_bool": format_bool,
                 **context,
             },
             status_code=status_code,
@@ -242,6 +259,22 @@ def create_app(
     def csrf(token: str) -> None:
         if not secrets.compare_digest(token, app.state.csrf):
             raise HTTPException(403, "Invalid form token")
+
+    @app.exception_handler(HTTPException)
+    async def handled_http_error(request: Request, error: HTTPException):
+        messages = {
+            400: "Požadavek nelze bezpečně zpracovat.",
+            403: "Tato akce není povolena.",
+            404: "Požadovaná stránka nebo rezervace nebyla nalezena.",
+            409: "Akci nyní nelze provést.",
+            503: "Služba je dočasně nedostupná.",
+        }
+        return render(
+            request,
+            "error.html",
+            status_code=error.status_code,
+            message=messages.get(error.status_code, "Došlo k neočekávanému problému."),
+        )
 
     def require_remote_ingress(request: Request) -> None:
         if not remote.enabled:
@@ -288,10 +321,10 @@ def create_app(
         try:
             threshold = Decimal(price_drop_threshold_percent)
             if not Decimal("0") < threshold <= Decimal("100"):
-                raise ValueError("Threshold must be greater than 0 and at most 100")
+                raise ValueError("Hranice musí být vyšší než 0 a nejvýše 100")
             entity = home_assistant_notify_entity.strip()
             if entity and not entity.startswith("notify."):
-                raise ValueError("Home Assistant notify entity must start with notify.")
+                raise ValueError("Entita upozornění Home Assistant musí začínat notify.")
         except (ValueError, ArithmeticError) as error:
             return render(request, "settings.html", settings=settings, error=str(error))
         settings.set_price_drop_threshold(threshold)
@@ -304,10 +337,10 @@ def create_app(
         entity = settings.get_notify_entity()
         adapter = app.state.notification_adapter
         if not entity or not entity.startswith("notify."):
-            app.state.settings_flash = "A valid Home Assistant notify entity must be saved first."
+            app.state.settings_flash = "Nejprve uložte platnou entitu upozornění Home Assistant."
         elif not isinstance(adapter, HomeAssistantNotificationAdapter):
             app.state.settings_flash = (
-                "Home Assistant notification delivery is unavailable in this runtime."
+                "Doručování upozornění Home Assistant není v tomto prostředí k dispozici."
             )
         else:
             try:
@@ -320,7 +353,7 @@ def create_app(
             except Exception as error:
                 app.state.settings_flash = sanitize_notification_error(error)
             else:
-                app.state.settings_flash = "Test notification sent successfully."
+                app.state.settings_flash = "Testovací upozornění bylo odesláno."
         return RedirectResponse(url_for_request(request, "settings_view"), status_code=303)
 
     @app.post("/reservations/extract", name="extract_reservation")
@@ -431,6 +464,7 @@ def create_app(
             )
         app.state.pending.pop(token, None)
         saved = reservations.create(Reservation(**candidate.model_dump(), active=True))
+        app.state.reservation_flash[str(saved.id)] = "Rezervace byla úspěšně uložena."
         return RedirectResponse(
             url_for_request(request, "reservation_detail", reservation_id=str(saved.id)),
             status_code=303,
@@ -441,6 +475,7 @@ def create_app(
         item = reservations.get(UUID(reservation_id))
         if item is None:
             raise HTTPException(404, "Reservation not found")
+        flash = app.state.reservation_flash.pop(reservation_id, None)
         return render(
             request,
             "detail.html",
@@ -448,6 +483,7 @@ def create_app(
             checks=history.list_for_reservation(item.id),
             alerts=alerts.list_for_reservation(item.id),
             schedule=actual_runner.schedules.get(item.id),
+            flash=flash,
         )
 
     @app.get("/reservations/{reservation_id}/edit", name="edit_reservation")

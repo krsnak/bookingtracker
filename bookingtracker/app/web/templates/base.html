@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="cs">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="{{ static_url('app.css') }}">
+  <link rel="stylesheet" href="{{ static_url('ui.css') }}">
   {% block extra_head %}{% endblock %}
   <title>BookingTracker</title>
 </head>
 <body>
   <header>
     <a href="{{ url('dashboard') }}">BookingTracker</a>
-    <nav>
-      <a href="{{ url('new_reservation') }}">Add</a>
-      <a href="{{ url('alerts_view') }}">Alerts</a>
-      <a href="{{ url('settings_view') }}">Settings</a>
-      <a href="{{ url('browser_status') }}">Browser</a>
+    <nav aria-label="Hlavní navigace">
+      {% for route, label in [('dashboard', 'Rezervace'), ('new_reservation', 'Přidat rezervaci'), ('alerts_view', 'Upozornění'), ('settings_view', 'Nastavení'), ('browser_status', 'Prohlížeč')] %}
+      <a href="{{ url(route) }}"{% if current_route == route %} class="is-active" aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
     </nav>
   </header>
   <main>{% block content %}{% endblock %}</main>

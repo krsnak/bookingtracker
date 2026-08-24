@@ -1,7 +1,8 @@
 # BookingTracker
 
-Version 0.4.3 makes Booking's Czech/English accommodation waiting sentence the authoritative
-property anchor, including PDF line breaks and Unicode names. Review uses a compact, isolated
+Version 0.5.0 adds Czech navigation, presentation helpers, and compact typography. Version
+0.4.3 makes Booking's Czech/English accommodation waiting sentence the authoritative property
+anchor, including PDF line breaks and Unicode names. Review uses a compact, isolated
 stylesheet. Synthetic PDFs are created only in memory during tests; no real confirmation or
 personal data is committed.
 
@@ -51,11 +52,11 @@ and the deployment/design details are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Phase 11 roadmap
 
-Phase 11 — Czech frontend and reservation dashboard — is planned. It will make
+Phase 11 — Czech frontend and reservation dashboard — is in progress. It will make
 the local single-user Home Assistant interface fully Czech, compact, and
 logically navigable, taking inspiration only from TripWatch's information
-density without copying its brand or source code. Phase 11A is next; no Phase
-11 work is implemented yet.
+density without copying its brand or source code. Phase 11A implementation is complete pending
+production validation; 11B is NEXT after that validation and 11C–11D are not started.
 
 - **11A / 0.5.0 — Navigation, Czech language, and typography:** a `Rezervace`
   home page, Czech global navigation and presentation mappings, reliable back

@@ -1,0 +1,26 @@
+/* Phase 11A compact UI layer; app.css remains the legacy base. */
+:root { font-size: 15px; line-height: 1.45; }
+body { font-size: 15px; line-height: 1.45; overflow-x: hidden; }
+header { align-items: center; flex-wrap: wrap; padding: .7rem 1rem; }
+header > a { white-space: nowrap; }
+nav { gap: .2rem; flex: 1 1 30rem; flex-wrap: wrap; justify-content: flex-end; }
+nav a { font-size: 14px; padding: .35rem .55rem; border-radius: .3rem; }
+nav a.is-active { background: #fff; color: #113c72; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #f6c344; outline-offset: 2px; }
+main { max-width: 1040px; padding: 1rem; }
+h1 { font-size: 28px; line-height: 1.2; margin: .35rem 0 .8rem; }
+h2 { font-size: 22px; line-height: 1.25; margin: 1rem 0 .55rem; }
+h3, article h2 { font-size: 18px; }
+article, section { padding: .8rem; margin: .65rem 0; }
+p, dl { margin: .45rem 0; }
+small, .ui-meta, .ui-diagnostics { font-size: 13px; }
+label { margin: .6rem 0; }
+input, textarea, select, button { font-size: 14px; }
+input, select, button { min-height: 39px; }
+textarea { min-height: 9rem; }
+.ui-back { margin: 0 0 .65rem; }
+.ui-back a { font-weight: 700; }
+.ui-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .7rem 0; }
+.ui-actions form { margin: 0; }
+details.ui-diagnostics { margin-top: .8rem; }
+@media (max-width: 699px) { h1 { font-size: 24px; } main { padding: .75rem; } nav { justify-content: flex-start; } nav a { padding: .4rem .5rem; } }

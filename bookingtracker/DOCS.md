@@ -3,7 +3,8 @@
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
 
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
-— is **PLANNED**; Phase 11A is **NEXT** and Phases 11B–11D are **NOT STARTED**. The plan is
+— is **IN PROGRESS**; Phase 11A is **IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING**,
+Phase 11B is **NEXT** after that validation, and Phases 11C–11D are **NOT STARTED**. The plan is
 split into independently releasable parts: Czech navigation and compact
 typography in 0.5.0, the reservation-card overview in 0.5.1, safe local property
 image uploads in 0.5.2, and reservation detail with local price history in
@@ -17,7 +18,10 @@ Images will be validated, optimized, and stored only below `/data`; missing
 images use a local placeholder. CSRF, the persistent browser lifecycle,
 scheduler, and Home Assistant/Telegram notifications remain unchanged.
 
-Version `0.4.3` gives an anchored Booking waiting sentence absolute priority through the public
+Version `0.5.0` adds request-aware Czech navigation, logical back links, an explicit internal-status
+presentation mapping, Czech date/money/boolean formatting, and content-hashed `ui.css` compact
+typography. The legacy `app.css` and page-specific `review.css` remain separate. Version `0.4.3`
+gives an anchored Booking waiting sentence absolute priority through the public
 PDF upload path. Conflicting language anchors require review. The compact review card loads its
 own content-hashed, Ingress-safe stylesheet. General multilingual block separation and a
 structured Booking price-adjustment field remain backlog items.

@@ -4,6 +4,7 @@
 {% endblock %}
 {% block content %}
 <div class="reservation-review">
+  {% from "components.html" import back_link %}{{ back_link(url('new_reservation'), 'Zpět na přidání rezervace') }}
   <h1>Kontrola rezervace</h1>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if candidate.validation_errors %}<p class="error">{{ candidate.validation_errors|join(' ') }}</p>{% endif %}
@@ -15,7 +16,7 @@
     <div class="reservation-review__summary">
       <section class="reservation-review__full">
         <h2 class="reservation-review__property">{{ candidate.property_name or 'Doplňte ubytování' }}</h2>
-        <p>{{ candidate.check_in or '' }} – {{ candidate.check_out or '' }} · {{ candidate.nights or '?' }} noc</p>
+        <p>{{ format_date_range(candidate.check_in, candidate.check_out) }} · {{ candidate.nights or '?' }} noc</p>
         {% if candidate.booking_url %}<a class="reservation-review__booking" href="{{ candidate.booking_url }}" rel="noreferrer">Otevřít na Booking.com</a>{% endif %}
       </section>
       <section>
@@ -27,20 +28,20 @@
       </section>
       <section>
         <h3>Podmínky</h3>
-        {% if candidate.cancellation_deadline %}<p>Zdarma do {{ candidate.cancellation_deadline.strftime('%-d. %-m. %Y %H:%M') }}</p>{% endif %}
+        {% if candidate.cancellation_deadline %}<p>Zdarma do {{ format_datetime(candidate.cancellation_deadline) }}</p>{% endif %}
         {% if candidate.payment_conditions %}<p>Booking.com strhne platbu automaticky</p>{% endif %}
       </section>
       <section class="reservation-review__full">
         <h3>Cena</h3>
-        <p class="reservation-review__total">{{ candidate.booked_total_price or '—' }} {{ candidate.currency or '' }}</p>
-        <p>K úhradě: {{ candidate.booked_payable_price or '—' }} {{ candidate.currency or '' }}</p>
+        <p class="reservation-review__total">{{ format_money(candidate.booked_total_price, candidate.currency) }}</p>
+        <p>K úhradě: {{ format_money(candidate.booked_payable_price, candidate.currency) }}</p>
       </section>
     </div>
     <label>Pokles ceny (%) <input name="price_drop_threshold_percent" value="{{ candidate.price_drop_threshold_percent or '' }}"></label>
     <details>
       <summary>Upravit údaje</summary>
-      {% for name in ['property_name','booking_url','check_in','check_out','adults','rooms_count','room_type','meal_plan','cancellation_deadline','payment_conditions','booked_total_price','booked_payable_price','booked_base_price','taxes_and_fees','currency'] %}
-      <label>{{ name }}<input name="{{ name }}" value="{{ candidate|attr(name) or '' }}"></label>
+      {% for name,label in [('property_name','Ubytování'),('booking_url','Odkaz na Booking.com'),('check_in','Příjezd'),('check_out','Odjezd'),('adults','Dospělí'),('rooms_count','Počet pokojů'),('room_type','Typ pokoje'),('meal_plan','Stravování'),('cancellation_deadline','Termín zrušení'),('payment_conditions','Platební podmínky'),('booked_total_price','Celková cena'),('booked_payable_price','Cena k úhradě'),('booked_base_price','Základní cena'),('taxes_and_fees','Daně a poplatky'),('currency','Měna')] %}
+      <label>{{ label }}<input name="{{ name }}" value="{{ candidate|attr(name) or '' }}"></label>
       {% endfor %}
     </details>
     <button>Uložit rezervaci</button>

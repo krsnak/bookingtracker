@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Documented the planned Phase 11 Czech frontend and reservation dashboard,
-  split into releasable 0.5.0–0.5.3 navigation, overview, image, and detail
-  milestones. No application behavior or release version changed.
+## 0.5.0
+
+- Added Czech request-aware global navigation, active-page semantics, logical back links, and PRG confirmation on reservation save.
+- Added explicit Czech presentation helpers for statuses, dates, times, money, and boolean values.
+- Added compact, content-hashed `ui.css`; Phase 11A implementation is complete pending Raspberry Pi production validation.
 
 ## 0.4.3
 
