@@ -1,19 +1,49 @@
-{% extends "base.html" %}{% block content %}
-{% macro field(name, label, type='text', step='') -%}
-{% set value = candidate|attr(name) %}{% set required = name in candidate.missing_critical_fields or name in candidate.ambiguous_fields %}
-<div class="review-field{% if required %} needs-review{% endif %}"><strong>{{ label }}</strong>
-{% if value is not none and not required %}<span>{{ value }}</span> <small>Rozpoznáno</small><details><summary>Upravit</summary><input type="{{ type }}" {% if step %}step="{{ step }}"{% endif %} name="{{ name }}" value="{{ value }}"></details>
-{% else %}<small>Nutno doplnit{% if value is none and name not in candidate.missing_critical_fields %} / Neuvedeno{% endif %}</small><input type="{{ type }}" {% if step %}step="{{ step }}"{% endif %} name="{{ name }}" value="{{ value or '' }}">{% endif %}</div>
-{%- endmacro %}
-{% macro choice(name, label) -%}
-{% set value = candidate|attr(name) %}<div class="review-field"><strong>{{ label }}</strong>{% if value is not none %}<span>{{ 'Ano' if value else 'Ne' }}</span> <small>Rozpoznáno</small>{% else %}<span>Neuvedeno</span>{% endif %}<details {% if value is none %}open{% endif %}><summary>{{ 'Upravit' if value is not none else 'Doplnit' }}</summary><select name="{{ name }}"><option value="">Neuvedeno</option><option value="yes" {% if value is true %}selected{% endif %}>Ano</option><option value="no" {% if value is false %}selected{% endif %}>Ne</option></select></details></div>
-{%- endmacro %}
-<h1>Kontrola rezervace</h1>{% if error %}<p class="error">{{ error }}</p>{% endif %}
-{% if candidate.warnings or candidate.ambiguous_fields or candidate.validation_errors or candidate.missing_critical_fields %}<p class="warning">Upozornění: {{ candidate.warnings|join(', ') }} {{ candidate.ambiguous_fields|join(', ') }} {{ candidate.validation_errors|join(', ') }} Chybí: {{ candidate.missing_critical_fields|join(', ') }}</p>{% endif %}
-<form method="post" action="{{ url('save_reservation') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="token" value="{{ token }}">
-<section><h2>Ubytování a pobyt</h2>{{ field('property_name', 'Ubytování') }}{% if candidate.property_aliases %}<p class="evidence">Pomocný důkaz názvu: {{ candidate.property_aliases|join(', ') }}</p>{% endif %}<div class="review-field"><strong>Odkaz na Booking.com</strong>{% if candidate.booking_url %}<a href="{{ candidate.booking_url }}" rel="noreferrer">{{ candidate.booking_url }}</a> <small>Rozpoznáno</small>{% else %}<span>Nutno doplnit</span>{% endif %}<details {% if not candidate.booking_url %}open{% endif %}><summary>{{ 'Upravit' if candidate.booking_url else 'Doplnit' }}</summary><input type="url" name="booking_url" value="{{ candidate.booking_url or '' }}"></details></div>{{ field('check_in', 'Příjezd', 'date') }}{{ field('check_out', 'Odjezd', 'date') }}<div class="review-field"><strong>Počet nocí</strong><span>{{ candidate.nights if candidate.nights is not none else 'Neuvedeno' }}</span> <small>Odvozeno z dat pobytu</small></div></section>
-<section><h2>Pokoj a hosté</h2>{{ field('rooms_count', 'Počet pokojů', 'number') }}{{ field('room_type', 'Typ pokoje') }}{{ field('adults', 'Dospělí', 'number') }}{{ field('children', 'Děti', 'number') }}</section>
-<section><h2>Strava a podmínky</h2>{{ field('meal_plan', 'Stravování') }}{{ choice('breakfast_included', 'Snídaně v ceně') }}{{ field('cancellation_text', 'Storno podmínky') }}{{ choice('free_cancellation', 'Bezplatné storno') }}{{ field('cancellation_deadline', 'Bezplatné storno do', 'datetime-local') }}{{ field('payment_conditions', 'Platební podmínky') }}</section>
-<section><h2>Cena</h2>{{ field('booked_total_price', 'Celková cena', 'number', 'any') }}{{ field('booked_payable_price', 'Částka k úhradě', 'number', 'any') }}{{ field('booked_base_price', 'Cena bez dalších poplatků', 'number', 'any') }}{{ field('taxes_and_fees', 'Daně a poplatky', 'number', 'any') }}{{ field('vat', 'DPH', 'number', 'any') }}{{ field('city_tax', 'Městská daň', 'number', 'any') }}{{ field('currency', 'Měna') }}</section>
-<section><h2>Sledování ceny</h2><p>Pokud hodnotu nezměníte, použije se globální výchozí práh.</p>{{ field('price_drop_threshold_percent', 'Vlastní práh poklesu ceny (%)', 'number', 'any') }}</section>
-<button>Uložit rezervaci</button></form>{% endblock %}
+{% extends "base.html" %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ static_url('review.css') }}">
+{% endblock %}
+{% block content %}
+<div class="reservation-review">
+  <h1>Kontrola rezervace</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if candidate.validation_errors %}<p class="error">{{ candidate.validation_errors|join(' ') }}</p>{% endif %}
+  <form method="post" action="{{ url('save_reservation') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="breakfast_included" value="{{ 'yes' if candidate.breakfast_included is true else ('no' if candidate.breakfast_included is false else '') }}">
+    <input type="hidden" name="free_cancellation" value="{{ 'yes' if candidate.free_cancellation is true else ('no' if candidate.free_cancellation is false else '') }}">
+    <div class="reservation-review__summary">
+      <section class="reservation-review__full">
+        <h2 class="reservation-review__property">{{ candidate.property_name or 'Doplňte ubytování' }}</h2>
+        <p>{{ candidate.check_in or '' }} – {{ candidate.check_out or '' }} · {{ candidate.nights or '?' }} noc</p>
+        {% if candidate.booking_url %}<a class="reservation-review__booking" href="{{ candidate.booking_url }}" rel="noreferrer">Otevřít na Booking.com</a>{% endif %}
+      </section>
+      <section>
+        <h3>Pobyt</h3>
+        <p>{{ candidate.room_type or 'Doplňte typ pokoje' }}</p>
+        <p>{{ candidate.rooms_count or '?' }} pokoj · {{ candidate.adults or '?' }} dospělí</p>
+        <label>Děti <input type="number" name="children" value="{{ candidate.children if candidate.children is not none else '' }}"></label>
+        {% if candidate.breakfast_included %}<p>Snídaně v ceně</p>{% endif %}
+      </section>
+      <section>
+        <h3>Podmínky</h3>
+        {% if candidate.cancellation_deadline %}<p>Zdarma do {{ candidate.cancellation_deadline.strftime('%-d. %-m. %Y %H:%M') }}</p>{% endif %}
+        {% if candidate.payment_conditions %}<p>Booking.com strhne platbu automaticky</p>{% endif %}
+      </section>
+      <section class="reservation-review__full">
+        <h3>Cena</h3>
+        <p class="reservation-review__total">{{ candidate.booked_total_price or '—' }} {{ candidate.currency or '' }}</p>
+        <p>K úhradě: {{ candidate.booked_payable_price or '—' }} {{ candidate.currency or '' }}</p>
+      </section>
+    </div>
+    <label>Pokles ceny (%) <input name="price_drop_threshold_percent" value="{{ candidate.price_drop_threshold_percent or '' }}"></label>
+    <details>
+      <summary>Upravit údaje</summary>
+      {% for name in ['property_name','booking_url','check_in','check_out','adults','rooms_count','room_type','meal_plan','cancellation_deadline','payment_conditions','booked_total_price','booked_payable_price','booked_base_price','taxes_and_fees','currency'] %}
+      <label>{{ name }}<input name="{{ name }}" value="{{ candidate|attr(name) or '' }}"></label>
+      {% endfor %}
+    </details>
+    <button>Uložit rezervaci</button>
+  </form>
+</div>
+{% endblock %}

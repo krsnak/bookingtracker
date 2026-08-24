@@ -1,0 +1,61 @@
+.reservation-review,
+.reservation-review * {
+  box-sizing: border-box;
+}
+
+.reservation-review {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  overflow-x: hidden;
+  font-size: 1rem;
+}
+
+.reservation-review__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
+.reservation-review__full {
+  grid-column: 1 / -1;
+}
+
+.reservation-review h1,
+.reservation-review h2,
+.reservation-review h3,
+.reservation-review p {
+  margin: 0 0 0.5rem;
+}
+
+.reservation-review__property,
+.reservation-review__total {
+  font-size: 1.5rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.reservation-review__booking,
+.reservation-review button {
+  display: inline-block;
+  min-height: 44px;
+  padding: 0.65rem 0.85rem;
+}
+
+.reservation-review details {
+  margin: 0.75rem 0;
+}
+
+.reservation-review input {
+  max-width: 100%;
+}
+
+@media (max-width: 700px) {
+  .reservation-review__summary {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-review__full {
+    grid-column: auto;
+  }
+}

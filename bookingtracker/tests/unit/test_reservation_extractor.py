@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from app.reservations.deterministic_parser import parse_anchored_property_name
 from app.reservations.extractor import ReservationExtractor
 from app.reservations.models import FieldConfidence
 
@@ -66,8 +67,8 @@ def test_extracts_format_variation_and_leaves_unknowns_null() -> None:
 def test_extracts_english_confirmation_without_treating_destination_as_property() -> None:
     candidate = extract_fixture("booking_english_confirmation.txt")
 
-    assert candidate.property_name == "Fakir Inn"
-    assert candidate.property_aliases == ["Zajazd Fakir"]
+    assert candidate.property_name == "Zajazd Fakir"
+    assert candidate.property_aliases == ["Fakir Inn"]
     assert candidate.booking_url == "https://www.booking.com/hotel/pl/zajazd-fakir.html"
     assert candidate.check_in == date(2026, 8, 25)
     assert candidate.check_out == date(2026, 8, 26)
@@ -103,6 +104,37 @@ def test_extracts_sahara_sands_pdf_layout_regression_without_promoting_cta() -> 
     assert candidate.booked_total_price == Decimal("59.68")
     assert candidate.booked_payable_price == Decimal("59.68")
     assert candidate.currency == "EUR"
+
+
+def test_waiting_sentence_is_authoritative_property_anchor() -> None:
+    assert parse_anchored_property_name(
+        ["Nikdy vás nepožádáme o platbu.", "Ubytování Grand Hotel Hønefoss", "vás bude očekávat"]
+    ) == "Grand Hotel Hønefoss"
+
+
+def test_conflicting_waiting_sentence_anchors_require_review() -> None:
+    assert parse_anchored_property_name(
+        [
+            "Ubytování Safe Hotel vás bude očekávat",
+            "Accommodation Other Hotel will be waiting for you",
+        ]
+    ) is None
+
+    candidate = ReservationExtractor().extract(
+        "Ubytování Safe Hotel vás bude očekávat\n"
+        "Accommodation Other Hotel will be waiting for you\n"
+        "2026-08-26\n2026-08-27\n2 adults\n1 night, Twin Room\nTotal price NOK 100"
+    )
+    assert candidate.property_name is None
+    assert "property_name" in candidate.missing_critical_fields
+
+
+def test_security_paragraph_is_never_a_property_name() -> None:
+    candidate = ReservationExtractor().extract(
+        "Nikdy vás kvůli platbě nebudeme žádat o údaje.\n"
+        "2026-08-26\n2026-08-27\n2 adults\n1 night, Twin Room\nTotal price NOK 100"
+    )
+    assert candidate.property_name is None
 
 
 def test_flags_competing_totals_and_does_not_block_reviewable_critical_data() -> None:

@@ -2,6 +2,11 @@
 
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
 
+Version `0.4.3` gives an anchored Booking waiting sentence absolute priority through the public
+PDF upload path. Conflicting language anchors require review. The compact review card loads its
+own content-hashed, Ingress-safe stylesheet. General multilingual block separation and a
+structured Booking price-adjustment field remain backlog items.
+
 Version `0.4.1` ranks property evidence rather than accepting generic CTA text. The review UI
 shows recognized facts as read-only Czech summaries with an explicit **Upravit** control; missing
 or ambiguous facts are opened for completion. Server-side typed validation remains mandatory.

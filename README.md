@@ -1,5 +1,10 @@
 # BookingTracker
 
+Version 0.4.3 makes Booking's Czech/English accommodation waiting sentence the authoritative
+property anchor, including PDF line breaks and Unicode names. Review uses a compact, isolated
+stylesheet. Synthetic PDFs are created only in memory during tests; no real confirmation or
+personal data is committed.
+
 Version 0.4.1 fixes property evidence scoring for Gmail-exported PDFs and presents recognized
 reservation facts as Czech read-only summaries until the user chooses to correct them.
 

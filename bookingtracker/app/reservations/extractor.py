@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from app.reservations.deterministic_parser import (
     clean_lines,
+    has_conflicting_anchored_properties,
+    parse_anchored_property_name,
     parse_booking_url,
     parse_cancellation,
     parse_dates_with_evidence,
@@ -54,13 +56,17 @@ class ReservationExtractor:
         price, warnings, ambiguous = parse_prices(lines)
         cancellation_text, free_cancellation, cancellation_deadline = parse_cancellation(lines)
         meal_plan, breakfast_included = parse_meal_facts(lines)
-        property_name = parse_property_name(lines)
+        anchored_property = parse_anchored_property_name(lines)
+        anchored_conflict = has_conflicting_anchored_properties(lines)
+        property_name = (
+            None if anchored_conflict else (anchored_property or parse_property_name(lines))
+        )
         property_aliases = parse_property_aliases(lines, property_name)
         # Consolidate the strongest named hotel evidence after every parser stage.
         weak_property = property_name is None or (
             bool(property_aliases) and len(property_name) > len(property_aliases[0]) * 2
         )
-        if property_aliases and weak_property:
+        if property_aliases and weak_property and not anchored_conflict:
             previous = [property_name] if property_name else []
             property_name, property_aliases = property_aliases[0], previous
         field_values = {

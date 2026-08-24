@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+- Made Booking waiting sentences an authoritative, split-line-safe property identity anchor.
+- Added a compact, namespaced review card and a real in-memory PDF upload regression with Unicode and a canonical URI annotation.
+- Conflicting Czech/English property anchors now require manual review instead of falling back.
+
 ## 0.4.2
 
 - Fixed split-line Czech cancellation evidence and consolidated strong PDF property aliases into the final property.

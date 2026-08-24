@@ -201,8 +201,40 @@ def find_after_heading(lines: list[str], heading: str) -> str | None:
 
 
 def parse_property_name(lines: list[str]) -> str | None:
+    anchored = parse_anchored_property_name(lines)
+    if anchored:
+        return anchored
     candidates = _property_candidates(lines)
     return candidates[0][0] if candidates else None
+
+
+def parse_anchored_property_name(lines: list[str]) -> str | None:
+    """Booking's waiting sentence is an authoritative property identity anchor."""
+    anchors = _anchored_property_names(lines)
+    normalized = {re.sub(r"\W+", "", name.casefold()): name for name in anchors}
+    return next(iter(normalized.values())) if len(normalized) == 1 else None
+
+
+def has_conflicting_anchored_properties(lines: list[str]) -> bool:
+    anchors = _anchored_property_names(lines)
+    return len({re.sub(r"\W+", "", name.casefold()) for name in anchors}) > 1
+
+
+def _anchored_property_names(lines: list[str]) -> list[str]:
+    anchors: list[str] = []
+    for index in range(len(lines)):
+        evidence = " ".join(lines[index : index + 3])
+        match = re.search(
+            r"\b(?:Ubytování|Accommodation)\s+(.+?)\s+"
+            r"(?:vás bude očekávat|will be waiting for you)\b",
+            evidence,
+            re.I,
+        )
+        if match:
+            name = re.sub(r"[*_]+", "", match.group(1)).strip(" .,:;-—")
+            if _is_property_name(name):
+                anchors.append(name)
+    return anchors
 
 
 def _property_candidates(lines: list[str]) -> list[tuple[str, int]]:
@@ -282,8 +314,10 @@ def _is_property_name(value: str) -> bool:
         and value.casefold() not in _PROPERTY_UI_TEXT
         and value.casefold() not in _PROPERTY_CTA_TEXT
         and len(value) <= 100
+        and value.count(".") <= 1
         and not re.search(
-            r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:|zrušit|storno|cena)",
+            r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:|zrušit|storno|"
+            r"cena|nikdy vás|platb|we will never|payment|rezervaci můžete)",
             value,
             re.I,
         )

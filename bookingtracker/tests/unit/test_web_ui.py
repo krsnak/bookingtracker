@@ -4,6 +4,7 @@ import re
 from datetime import date
 from decimal import Decimal
 from html import unescape
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -11,10 +12,12 @@ import pytest
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
-from app.reservations.import_document import ImportDocumentSource, ReservationImportDocument
 from app.reservations.models import Reservation, ReservationCandidate
 from app.web.app import create_app, static_asset_revision
 from fastapi.testclient import TestClient
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 from starlette.websockets import WebSocketDisconnect
 
 
@@ -69,7 +72,13 @@ def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: A
     with TestClient(app, root_path="/bookingtracker-test") as client:
         dashboard = client.get("/bookingtracker-test/")
         assert dashboard.status_code == 200
-        assert 'href="/bookingtracker-test/reservations/new"' in dashboard.text
+        assert dashboard.text.count("<head>") == dashboard.text.count("</head>") == 1
+        assert dashboard.text.count("<body>") == dashboard.text.count("</body>") == 1
+        assert all(
+            f'href="/bookingtracker-test/{path}"' in dashboard.text
+            for path in ("reservations/new", "alerts", "settings", "browser")
+        )
+        assert "<nav>" in dashboard.text and "BookingTracker" in dashboard.text
         form = client.get("/bookingtracker-test/reservations/new")
         token = app.state.csrf
         extracted = client.post(
@@ -88,7 +97,10 @@ def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: A
         assert "/bookingtracker-test/reservations/save" in extracted.text
         css_link = re.search(r'<link[^>]+href="([^"]+)"', dashboard.text)[1]
         assert css_link == f"/bookingtracker-test/static/app.css?v={app.state.static_css_revision}"
+        app_css = Path(__file__).parents[2] / "app" / "web" / "static" / "app.css"
+        assert css_link.endswith(f"?v={static_asset_revision(app_css)}")
         assert client.get("/bookingtracker-test/static/app.css").status_code == 200
+        assert "review.css" not in dashboard.text
 
 
 def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tmp_path) -> None:  # noqa: ANN001
@@ -103,8 +115,8 @@ def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tm
         review = client.post(
             "/reservations/extract", data={"csrf_token": app.state.csrf, "source_text": source}
         )
-        assert all(label in review.text for label in ("Ubytování a pobyt", "Pokoj a hosté", "Cena"))
-        assert "Rozpoznáno" in review.text and "Upravit" in review.text
+        assert all(label in review.text for label in ("Pobyt", "Podmínky", "Cena"))
+        assert "Rozpoznáno" not in review.text and "Upravit údaje" in review.text
         assert 'name="nights"' not in review.text
         token = next(iter(app.state.pending))
         saved = client.post(
@@ -128,40 +140,97 @@ def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tm
         assert app.state.reservations.list_active()[0].nights == 1
 
 
-def test_pdf_upload_pipeline_renders_sahara_candidate_and_responsive_review(tmp_path, monkeypatch) -> None:  # noqa: ANN001,E501
-    from app.web import app as web_app
-
-    fixture_path = Path(__file__).parents[1] / "fixtures" / "booking_sahara_sands_synthetic.txt"
-    fixture = fixture_path.read_text()
-    document = ReservationImportDocument(
-        text=fixture,
-        uris=["https://www.booking.com/hotel/ma/diamant-sahara-camp.html"],
-        source=ImportDocumentSource.PDF,
+def _grand_hotel_pdf() -> bytes:
+    output = BytesIO()
+    pdf = canvas.Canvas(output)
+    font_path = next(
+        path
+        for path in (
+            Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        )
+        if path.is_file()
     )
-    monkeypatch.setattr(web_app, "pdf_document", lambda _bytes: document)
+    pdfmetrics.registerFont(TTFont("FixtureUnicode", font_path))
+    pdf.setFont("FixtureUnicode", 10)
+    pdf.setTitle("Gmail - Grand Hotel Hønefoss - reservation confirmed")
+    lines = [
+        "Zjistit více", "Nikdy vás nepožádáme o platbu mimo Booking.com.",
+        "Ubytování Grand Hotel", "Hønefoss vás bude očekávat", "Grand Hotel Hønefoss",
+        "Informace o rezervaci", "Arrival: 26. srpna 2026", "Departure: 27. srpna 2026",
+        "Vaše rezervace: 1 noc, Levný dvoulůžkový pokoj s manželskou postelí",
+        "Reservations for: 2 adults", "Breakfast included",
+        "Podmínky zrušení rezervace", "zdarma do 24. srpna 2026 23:59",
+        "Informace o ceně", "Celková cena NOK 1320.54", "Informace o platbě",
+        "Plánované platby celkem NOK 1320.54", "Celkem zaplaceno NOK 0",
+        "Booking.com automaticky strhne částku z Vaší karty",
+    ]
+    y = 800
+    for line in lines:
+        pdf.drawString(60, y, line)
+        y -= 20
+    url = "https://www.booking.com/hotel/no/grand-hotel-honefoss.html?tracking=discard"
+    pdf.linkURL(url, (60, y - 5, 320, y + 15), relative=0)
+    pdf.drawString(60, y, "Booking.com hotel")
+    pdf.showPage()
+    pdf.setFont("FixtureUnicode", 10)
+    pdf.drawString(60, 800, "Accommodation Grand Hotel Hønefoss will be waiting for you")
+    pdf.save()
+    return output.getvalue()
+
+
+def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path) -> None:  # noqa: ANN001
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
     )
     with TestClient(app) as client:
+        prefix = "/api/hassio_ingress/review-session"
         response = client.post(
             "/reservations/extract/pdf",
+            headers={"X-Ingress-Path": prefix},
             data={"csrf_token": app.state.csrf},
-            files={"pdf": ("confirmation.pdf", b"%PDF-synthetic", "application/pdf")},
+            files={"pdf": ("confirmation.pdf", _grand_hotel_pdf(), "application/pdf")},
         )
         candidate = next(iter(app.state.pending.values()))
-        assert candidate.property_name == "Sahara Sands Hotel"
-        assert candidate.check_in == date(2026, 9, 12) and candidate.check_out == date(2026, 9, 14)
-        assert candidate.nights == 2 and candidate.children is None and candidate.vat is None
+        assert response.status_code == 200
+        assert candidate.property_name == "Grand Hotel Hønefoss"
+        assert candidate.booking_url == "https://www.booking.com/hotel/no/grand-hotel-honefoss.html"
+        assert candidate.check_in == date(2026, 8, 26) and candidate.check_out == date(2026, 8, 27)
+        assert candidate.nights == 1 and candidate.rooms_count == 1
+        assert candidate.adults == 2 and candidate.children is None
+        assert candidate.breakfast_included is True
         assert candidate.free_cancellation is True
-        assert str(candidate.cancellation_deadline) == "2026-09-06 23:59:00"
-        assert candidate.booked_base_price == Decimal("57.94")
-        assert candidate.taxes_and_fees == Decimal("1.74")
-        assert candidate.booked_total_price == Decimal("59.68")
-        assert "Sahara Sands Hotel" in response.text and "Rozpoznáno" in response.text
+        assert str(candidate.cancellation_deadline) == "2026-08-24 23:59:00"
+        assert candidate.payment_conditions == "Automatická budoucí platba kartou přes Booking.com"
+        assert candidate.booked_total_price == Decimal("1320.54")
+        assert candidate.booked_payable_price == Decimal("1320.54")
+        assert "Grand Hotel Hønefoss" in response.text and "Rozpoznáno" not in response.text
+        assert "Nikdy vás nepožádáme" not in response.text
+        assert "Informace o rezervaci" not in response.text
+        assert '<details open' not in response.text
+        assert response.text.count('class="reservation-review__total"') == 1
+        assert 'name="children"' in response.text
         assert "Booking URL:" not in response.text
-    css = (Path(__file__).parents[2] / "app" / "web" / "static" / "app.css").read_text()
-    assert "max-width:1100px" in css and "repeat(2,minmax(0,1fr))" in css
-    assert "@media(max-width:699px){section{grid-template-columns:1fr}}" in css
+        links = re.findall(r'<link[^>]+href="([^"]+)"', response.text)
+        static_root = Path(__file__).parents[2] / "app" / "web" / "static"
+        assert links[0] == (
+            f"{prefix}/static/app.css?v={static_asset_revision(static_root / 'app.css')}"
+        )
+        assert links[1] == (
+            f"{prefix}/static/review.css?v={static_asset_revision(static_root / 'review.css')}"
+        )
+        assert all(link.count(prefix) == 1 for link in links)
+        assert len(links) == 2
+    css = (Path(__file__).parents[2] / "app" / "web" / "static" / "review.css").read_text()
+    assert "max-width: 800px" in css and "repeat(2, minmax(0, 1fr))" in css
+    assert "grid-template-columns: 1fr" in css
+    assert "overflow-x: hidden" in css
+    assert "url(" not in css and "ingress" not in css.casefold()
+    assert all(
+        not line.lstrip().startswith(("body", "main", "section", "input"))
+        for line in css.splitlines()
+        if "{" in line
+    )
     assert "style=" not in response.text
 
 

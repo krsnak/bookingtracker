@@ -202,7 +202,10 @@ def create_app(
     app.state.extractor = ReservationExtractor()
     app.state.csrf = secrets.token_urlsafe(24)
     app.state.pending: dict[str, object] = {}
-    app.state.static_css_revision = static_asset_revision(ROOT / "static" / "app.css")
+    app.state.static_css_revisions = {
+        name: static_asset_revision(ROOT / "static" / name) for name in ("app.css", "review.css")
+    }
+    app.state.static_css_revision = app.state.static_css_revisions["app.css"]
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
     @app.middleware("http")
@@ -220,8 +223,8 @@ def create_app(
     def render(request: Request, name: str, *, status_code: int = 200, **context: object):
         def static_url(path: str) -> str:
             asset_url = url_for_request(request, "static", path=path)
-            if path == "app.css":
-                return f"{asset_url}?v={app.state.static_css_revision}"
+            if revision := app.state.static_css_revisions.get(path):
+                return f"{asset_url}?v={revision}"
             return asset_url
 
         return templates.TemplateResponse(
@@ -400,7 +403,11 @@ def create_app(
                 "meal_plan": value("meal_plan"),
                 "breakfast_included": {"yes": True, "no": False}.get(value("breakfast_included") or ""),
                 "free_cancellation": {"yes": True, "no": False}.get(value("free_cancellation") or ""),
-                "cancellation_text": value("cancellation_text"),
+                "cancellation_text": (
+                    value("cancellation_text")
+                    if "cancellation_text" in form
+                    else candidate.cancellation_text
+                ),
                 "cancellation_deadline": datetime.fromisoformat(value("cancellation_deadline")) if value("cancellation_deadline") else None,
                 "payment_conditions": value("payment_conditions"), "currency": value("currency"),
                 "booked_total_price": money("booked_total_price"), "booked_payable_price": money("booked_payable_price"),

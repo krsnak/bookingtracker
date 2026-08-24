@@ -6,6 +6,12 @@ Added CTA-resistant property evidence scoring, Czech split-line cancellation/pay
 and a Czech progressive review UI. Real Raspberry Pi validation of an actual Gmail PDF remains
 required before declaring this correction production-complete.
 
+## Import follow-up backlog
+
+- Add a structured Booking price-adjustment amount if future comparisons require the itemized
+  discount rather than the explicit total.
+- Generalize Czech/English confirmation block separation beyond anchored property identity.
+
 ## Import phase 0.4.0
 
 Implemented the shared PDF/text reservation import boundary, Czech/English deterministic
