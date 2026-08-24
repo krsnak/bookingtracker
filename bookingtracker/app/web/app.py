@@ -52,6 +52,14 @@ from app.db.repository import (
 )
 from app.integrations.home_assistant.remote_desktop import RemoteDesktopError, RemoteDesktopRuntime
 from app.matching.matcher import ExactReservationMatcher
+from app.presentation import (
+    check_reason_for,
+    check_reason_text,
+    check_result_text,
+    enum_value,
+    format_check_datetime,
+    format_duration,
+)
 from app.pricing.check_service import PriceCheckService
 from app.pricing.service import ComparablePriceService
 from app.reservations.extractor import ReservationExtractor
@@ -251,6 +259,12 @@ def create_app(
                 "format_datetime": format_datetime,
                 "format_money": format_money,
                 "format_bool": format_bool,
+                "check_reason_for": check_reason_for,
+                "check_reason_text": check_reason_text,
+                "check_result_text": check_result_text,
+                "format_check_datetime": format_check_datetime,
+                "format_duration": format_duration,
+                "enum_value": enum_value,
                 **context,
             },
             status_code=status_code,

@@ -13,6 +13,12 @@ from app.db.repository import (
     SettingsRepository,
 )
 from app.matching.models import MatchClassification
+from app.presentation import (
+    check_reason_for,
+    check_reason_text,
+    failure_count_word,
+    format_check_datetime,
+)
 from app.pricing.models import PriceCheckRecord, PriceCheckStatus
 from app.reservations.models import Reservation
 
@@ -79,8 +85,8 @@ class AlertService:
                             price_check_id=check.id,
                             type=AlertType.NEW_HISTORICAL_LOW,
                             severity=AlertSeverity.INFO,
-                            title="New historical comparable low",
-                            message=f"Current comparable price {current} is the lowest observed.",
+                            title="Nová nejnižší porovnatelná cena",
+                            message=f"Aktuální porovnatelná cena {current} je dosud nejnižší.",
                             dedupe_key=f"historical-low:{check.reservation_id}:{current}",
                             metadata={"current_price": str(current)},
                         )
@@ -94,21 +100,19 @@ class AlertService:
                             price_check_id=check.id,
                             type=AlertType.BETTER_RATE_FOUND,
                             severity=AlertSeverity.INFO,
-                            title="Comparable better rate found",
-                            message="A matcher-approved better rate is now comparable.",
+                            title="Nalezena bezpečně porovnatelná lepší nabídka",
+                            message="Nalezená lepší nabídka splnila pravidla přesného porovnání.",
                             dedupe_key=f"better-rate:{check.reservation_id}:{current}",
                         )
                     )
                 )
         if check.status is PriceCheckStatus.LOGGED_OUT:
             created.extend(
-                self._manual_action_alert(check, AlertType.LOGIN_REQUIRED, "Booking login required")
+                self._manual_action_alert(check, reservation, AlertType.LOGIN_REQUIRED)
             )
         if check.status is PriceCheckStatus.CAPTCHA_REQUIRED:
             created.extend(
-                self._manual_action_alert(
-                    check, AlertType.CAPTCHA_REQUIRED, "Booking CAPTCHA required"
-                )
+                self._manual_action_alert(check, reservation, AlertType.CAPTCHA_REQUIRED)
             )
         if (
             consecutive_failures >= self.failure_threshold
@@ -121,11 +125,14 @@ class AlertService:
                         price_check_id=check.id,
                         type=AlertType.CHECK_FAILED,
                         severity=AlertSeverity.WARNING,
-                        title="Repeated Booking check failure",
-                        message=(
-                            f"{consecutive_failures} consecutive infrastructure failures recorded."
+                        title="Opakovaně se nepodařilo zkontrolovat cenu",
+                        message=self._check_failed_message(
+                            check, reservation, consecutive_failures
                         ),
-                        dedupe_key=f"check-failed:{check.reservation_id}:{check.status}",
+                        dedupe_key=(
+                            f"check-failed:{check.reservation_id}:"
+                            f"{check_reason_for(check) or check.status}"
+                        ),
                         metadata={
                             "status": check.status.value,
                             "consecutive_failures": str(consecutive_failures),
@@ -205,14 +212,13 @@ class AlertService:
         saving = -comparison.delta_amount
         return "\n".join(
             (
-                reservation.property_name or "Booking reservation",
-                reservation.room_type or "Unknown room",
-                f"Stay: {reservation.check_in} → {reservation.check_out}",
-                f"Booked: {comparison.booked_price} {comparison.currency}",
-                f"Current: {comparison.current_price} {comparison.currency}",
-                f"Saving: {saving} {comparison.currency} ({self._saving_percent(check):.2f}%)",
-                f"Reached band: {self._band(check, reservation) * self._threshold(reservation)}%",
-                "Result: exact comparable match",
+                reservation.property_name or "Rezervace Booking.com",
+                reservation.room_type or "Neuvedený typ pokoje",
+                f"Pobyt: {reservation.check_in} → {reservation.check_out}",
+                f"Rezervovaná cena: {comparison.booked_price} {comparison.currency}",
+                f"Aktuální cena: {comparison.current_price} {comparison.currency}",
+                f"Úspora: {saving} {comparison.currency} ({self._saving_percent(check):.2f} %)",
+                "Výsledek: bezpečně porovnatelná nabídka",
             )
         )
 
@@ -232,8 +238,19 @@ class AlertService:
         return not previous or current < min(previous)
 
     def _manual_action_alert(
-        self, check: PriceCheckRecord, kind: AlertType, title: str
+        self, check: PriceCheckRecord, reservation: Reservation | None, kind: AlertType
     ) -> list[Alert]:
+        reason = check_reason_for(check)
+        title = (
+            "Je nutné přihlášení na Booking.com"
+            if kind is AlertType.LOGIN_REQUIRED
+            else "Je nutné ruční ověření CAPTCHA"
+        )
+        property_name = (
+            reservation.property_name
+            if reservation and reservation.property_name
+            else "Rezervace"
+        )
         return self._create(
             Alert(
                 reservation_id=check.reservation_id,
@@ -241,9 +258,29 @@ class AlertService:
                 type=kind,
                 severity=AlertSeverity.ACTION_REQUIRED,
                 title=title,
-                message="Manual action is required before automated checks resume normally.",
+                message=f"{property_name}: {check_reason_text(reason)}",
                 dedupe_key=f"{kind}:{check.reservation_id}",
             )
+        )
+
+    @staticmethod
+    def _check_failed_message(
+        check: PriceCheckRecord,
+        reservation: Reservation | None,
+        consecutive_failures: int,
+    ) -> str:
+        property_name = (
+            reservation.property_name
+            if reservation and reservation.property_name
+            else "Neuvedené ubytování"
+        )
+        reason = check_reason_text(check_reason_for(check))
+        next_attempt = format_check_datetime(check.next_check_at)
+        return (
+            f"{property_name}: kontrola ceny se nezdařila "
+            f"{failure_count_word(consecutive_failures)} po sobě. "
+            f"Poslední příčina: {reason[0].lower() + reason[1:]} "
+            f"Další pokus: {next_attempt}."
         )
 
     def _create(self, alert: Alert) -> list[Alert]:

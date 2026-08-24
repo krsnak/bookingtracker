@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -12,6 +14,7 @@ from app.db.repository import (
     ReservationRepository,
     ScheduleStateRepository,
 )
+from app.presentation import check_reason_text, check_result_text
 from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
 from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
 from app.scheduling.models import CheckTrigger
@@ -36,6 +39,56 @@ from test_scheduler_alerts import RecordingNotifier, StaticPipeline
 )
 def test_stable_reason_mapping(status, reason) -> None:  # noqa: ANN001
     assert reason_code_for(status) is reason
+
+
+@pytest.mark.parametrize(
+    ("reason", "text"),
+    [
+        (CheckReasonCode.TIMEOUT, "Kontrolu ceny se nepodařilo dokončit v časovém limitu."),
+        (
+            CheckReasonCode.NAVIGATION_ERROR,
+            "Booking.com se nepodařilo otevřít nebo dokončit načtení stránky.",
+        ),
+        (
+            CheckReasonCode.NETWORK_ERROR,
+            "Kontrolu se nepodařilo provést kvůli problému síťového připojení.",
+        ),
+        (
+            CheckReasonCode.BROWSER_ERROR,
+            "Kontrolu se nepodařilo provést kvůli problému prohlížeče.",
+        ),
+        (
+            CheckReasonCode.LOGIN_REQUIRED,
+            "Pro pokračování je nutné znovu se přihlásit na Booking.com.",
+        ),
+        (CheckReasonCode.CAPTCHA_REQUIRED, "Booking.com vyžaduje ruční ověření CAPTCHA."),
+        (
+            CheckReasonCode.PARSER_ERROR,
+            "Stránka se načetla, ale nepodařilo se z ní bezpečně přečíst "
+            "odpovídající nabídku.",
+        ),
+        (
+            CheckReasonCode.NO_COMPARABLE_OFFER,
+            "Nebyla nalezena nabídka, kterou lze bezpečně porovnat s rezervací.",
+        ),
+        (CheckReasonCode.UNEXPECTED_ERROR, "Kontrola skončila neočekávanou technickou chybou."),
+    ],
+)
+def test_every_reason_code_has_exact_czech_presentation(reason, text) -> None:  # noqa: ANN001
+    assert check_reason_text(reason) == text
+
+
+def test_short_check_results_never_expose_internal_statuses() -> None:
+    expected = {
+        PriceCheckStatus.SUCCESS: "Cena zkontrolována",
+        PriceCheckStatus.TIMEOUT: "Kontrolu se nepodařilo dokončit",
+        PriceCheckStatus.LOGGED_OUT: "Nutné přihlášení",
+        PriceCheckStatus.CAPTCHA_REQUIRED: "Nutné ověření CAPTCHA",
+        PriceCheckStatus.NO_MATCH: "Nabídku nelze bezpečně porovnat",
+    }
+    for status, text in expected.items():
+        record = PriceCheckRecord(reservation_id=reservation().id, status=status)
+        assert check_result_text(record) == text
 
 
 def test_navigation_network_failure_has_distinct_reason() -> None:
@@ -176,10 +229,41 @@ def test_no_comparable_offer_increments_then_success_resets_failure_count(tmp_pa
     assert succeeded.consecutive_failure_count == 0
 
 
-def test_unexpected_exception_is_persisted_without_price_or_price_alert(tmp_path) -> None:  # noqa: ANN001,E501
+@pytest.mark.parametrize(
+    ("status", "level"),
+    [
+        (PriceCheckStatus.SUCCESS, logging.INFO),
+        (PriceCheckStatus.TIMEOUT, logging.WARNING),
+    ],
+)
+def test_automatic_check_writes_one_structured_log(tmp_path, caplog, status, level) -> None:  # noqa: ANN001,E501
+    _, stored, _, runner = _runner(tmp_path, [status])
+    logger = logging.getLogger("bookingtracker.checks")
+    logger.addHandler(caplog.handler)
+    try:
+        result = runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+    finally:
+        logger.removeHandler(caplog.handler)
+    assert result is not None
+    records = [record for record in caplog.records if record.name == "bookingtracker.checks"]
+    assert len(records) == 1 and records[0].levelno == level
+    payload = json.loads(records[0].message)
+    assert payload["event"] == "booking_check_completed"
+    assert payload["property_name"] == stored.property_name
+    assert payload["reservation_id"] == str(stored.id)
+    assert payload["status"] == status.value
+    assert payload["consecutive_failure_count"] == result.consecutive_failure_count
+    assert payload["next_check_at"] == result.next_check_at.isoformat()
+
+
+def test_unexpected_exception_is_persisted_and_safely_logged_without_price_alert(
+    tmp_path, caplog
+) -> None:  # noqa: ANN001
     database = SQLiteDatabase(tmp_path / "unexpected.db")
     reservations = ReservationRepository(database)
-    stored = reservations.create(reservation(active=True))
+    stored = reservations.create(
+        reservation(active=True, property_name="guest@example.com <b>Private Hotel</b>")
+    )
     history = PriceCheckRepository(database)
     alerts = AlertRepository(database)
 
@@ -198,7 +282,12 @@ def test_unexpected_exception_is_persisted_without_price_or_price_alert(tmp_path
         AlertService(alerts, history, RecordingNotifier()),
         clock=lambda: datetime(2026, 8, 24, 12, tzinfo=UTC),
     )
-    result = runner.run_check(stored.id, CheckTrigger.MANUAL)
+    logger = logging.getLogger("bookingtracker.checks")
+    logger.addHandler(caplog.handler)
+    try:
+        result = runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+    finally:
+        logger.removeHandler(caplog.handler)
     assert result is not None
     assert result.reason_code is CheckReasonCode.UNEXPECTED_ERROR
     assert result.comparison is None
@@ -209,3 +298,8 @@ def test_unexpected_exception_is_persisted_without_price_or_price_alert(tmp_path
     assert persisted.safe_error_detail == result.safe_error_detail
     saved_alerts = alerts.list_for_reservation(stored.id)
     assert not any(alert.type is AlertType.PRICE_DROP for alert in saved_alerts)
+    records = [record for record in caplog.records if record.name == "bookingtracker.checks"]
+    assert len(records) == 1 and records[0].levelno == logging.ERROR
+    logged = records[0].message.casefold()
+    assert "unexpected_error" in logged
+    assert all(secret not in logged for secret in ("secret", "guest@example", "/users/"))

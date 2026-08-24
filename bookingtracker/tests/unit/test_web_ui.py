@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from html import unescape
 from io import BytesIO
@@ -12,6 +12,7 @@ import pytest
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
+from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
 from app.reservations.models import Reservation, ReservationCandidate
 from app.web.app import create_app, static_asset_revision
 from app.web.presentation import (
@@ -141,6 +142,89 @@ def test_czech_navigation_back_links_and_presentation_helpers(tmp_path) -> None:
     assert format_date_range(date(2026, 8, 26), date(2026, 8, 27)) == "26.–27. srpna 2026"
     assert format_datetime(datetime(2026, 8, 24, 23, 59)) == "24. srpna 2026 23:59"
     assert format_money(Decimal("1320.54"), "NOK") == "1 320,54 NOK"
+
+
+def test_dashboard_and_detail_render_czech_check_diagnostics_under_ingress(tmp_path) -> None:  # noqa: ANN001,E501
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(
+        Reservation(
+            property_name="STORHAUGEN GARD",
+            booking_url="https://www.booking.com/hotel/no/example.html",
+            check_in=date(2026, 9, 18),
+            check_out=date(2026, 9, 19),
+            adults=2,
+            rooms_count=1,
+            room_type="Dvoulůžkový pokoj",
+            booked_total_price=Decimal("1320.54"),
+            currency="NOK",
+            source_text="Sanitized fixture",
+            extraction_confidence=1,
+            active=True,
+        )
+    )
+    started = datetime(2026, 8, 24, 23, 58, tzinfo=UTC)
+    app.state.history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            checked_at=started,
+            started_at=started,
+            finished_at=started + timedelta(seconds=2),
+            duration_ms=2000,
+            status=PriceCheckStatus.PARSER_ERROR,
+            reason_code=CheckReasonCode.PARSER_ERROR,
+            safe_error_detail="bezpečný detail parseru",
+            consecutive_failure_count=3,
+            next_check_at=datetime(2026, 8, 25, 5, 35, tzinfo=UTC),
+        ),
+        [],
+    )
+    prefix = "/api/hassio_ingress/diagnostics"
+    headers = {"X-Ingress-Path": prefix}
+    with TestClient(app) as client:
+        dashboard = client.get("/", headers=headers)
+        detail = client.get(f"/reservations/{stored.id}", headers=headers)
+    assert "Kontrolu se nepodařilo dokončit" in dashboard.text
+    assert "Další pokus: 25. 8. 2026 v 5:35" in dashboard.text
+    assert "parser_error" not in dashboard.text and "timeout" not in dashboard.text
+    assert "Poslední kontrola" in detail.text
+    assert "Doba trvání: 2 s" in detail.text
+    assert "Stránka se načetla, ale nepodařilo se z ní bezpečně přečíst" in detail.text
+    assert "Počet po sobě jdoucích neúspěchů: 3" in detail.text
+    assert f'href="{prefix}/">← Zpět na rezervace</a>' in detail.text
+    assert f'action="{prefix}/reservations/{stored.id}/check"' in detail.text
+
+
+def test_detail_falls_back_for_pre_diagnostics_history_row(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(
+        Reservation(
+            property_name="Legacy Hotel",
+            booking_url="https://www.booking.com/hotel/cz/example.html",
+            check_in=date(2026, 9, 18),
+            check_out=date(2026, 9, 19),
+            adults=2,
+            rooms_count=1,
+            room_type="Pokoj",
+            booked_total_price=Decimal("100"),
+            currency="EUR",
+            source_text="Sanitized fixture",
+            extraction_confidence=1,
+            active=True,
+        )
+    )
+    app.state.history.create(
+        PriceCheckRecord(reservation_id=stored.id, status=PriceCheckStatus.TIMEOUT), []
+    )
+    with TestClient(app) as client:
+        detail = client.get(f"/reservations/{stored.id}")
+    assert detail.status_code == 200
+    assert "Podrobnosti nejsou k dispozici" in detail.text
+    assert "Kontrola vypršela" not in detail.text
+    assert "timeout" not in detail.text
 
 
 def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tmp_path) -> None:  # noqa: ANN001

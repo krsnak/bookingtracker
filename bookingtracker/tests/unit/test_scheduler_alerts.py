@@ -18,7 +18,12 @@ from app.db.repository import (
     SettingsRepository,
 )
 from app.matching.models import MatchClassification
-from app.pricing.models import PriceCheckRecord, PriceCheckStatus, PriceComparison
+from app.pricing.models import (
+    CheckReasonCode,
+    PriceCheckRecord,
+    PriceCheckStatus,
+    PriceComparison,
+)
 from app.scheduling.models import CheckTrigger
 from app.scheduling.policy import SchedulePolicy, SchedulerSettings
 from app.scheduling.service import CheckRunner, ReservationScheduler
@@ -140,6 +145,82 @@ def test_login_captcha_and_repeated_failure_alerts_are_deduplicated(tmp_path) ->
     assert [alert.type for alert in alerts.list_for_reservation(stored.id)].count(
         AlertType.CHECK_FAILED
     ) == 1
+
+
+def test_czech_check_failed_payload_contains_property_reason_count_and_next_attempt(
+    tmp_path,
+) -> None:  # noqa: ANN001
+    payloads: list[tuple[str, dict[str, object]]] = []
+    adapter = HomeAssistantNotificationAdapter(
+        "notify.telegram",
+        transport=lambda path, payload: payloads.append((path, payload)),
+    )
+    database = SQLiteDatabase(tmp_path / "czech-alert.db")
+    stored = ReservationRepository(database).create(
+        reservation(property_name="STORHAUGEN GARD")
+    )
+    history = PriceCheckRepository(database)
+    alerts = AlertRepository(database)
+    service = AlertService(alerts, history, adapter, failure_threshold=3)
+    next_attempt = datetime(2026, 8, 25, 5, 35, tzinfo=UTC)
+    for failures in (1, 2, 3, 4):
+        check = history.create(
+            PriceCheckRecord(
+                reservation_id=stored.id,
+                status=PriceCheckStatus.PARSER_ERROR,
+                reason_code=CheckReasonCode.PARSER_ERROR,
+                consecutive_failure_count=failures,
+                next_check_at=next_attempt,
+            ),
+            [],
+        )
+        service.process(check, stored, consecutive_failures=failures)
+
+    saved = [
+        alert
+        for alert in alerts.list_for_reservation(stored.id)
+        if alert.type is AlertType.CHECK_FAILED
+    ]
+    assert len(saved) == 1
+    alert = saved[0]
+    assert alert.title == "Opakovaně se nepodařilo zkontrolovat cenu"
+    assert alert.message == (
+        "STORHAUGEN GARD: kontrola ceny se nezdařila třikrát po sobě. "
+        "Poslední příčina: stránka se načetla, ale nepodařilo se z ní bezpečně "
+        "přečíst odpovídající nabídku. Další pokus: 25. 8. 2026 v 5:35."
+    )
+    assert payloads == [
+        (
+            "/services/notify/send_message",
+            {
+                "entity_id": "notify.telegram",
+                "title": alert.title,
+                "message": alert.message,
+            },
+        )
+    ]
+
+
+def test_login_and_captcha_alert_immediately_with_czech_notification(tmp_path) -> None:  # noqa: ANN001,E501
+    database = SQLiteDatabase(tmp_path / "manual-alert.db")
+    stored = ReservationRepository(database).create(reservation(property_name="Safe Hotel"))
+    history = PriceCheckRepository(database)
+    alerts = AlertRepository(database)
+    delivered: list[Alert] = []
+
+    class CaptureNotifier:
+        def deliver(self, alert: Alert) -> None:
+            delivered.append(alert)
+
+    service = AlertService(alerts, history, CaptureNotifier())
+    for status in (PriceCheckStatus.LOGGED_OUT, PriceCheckStatus.CAPTCHA_REQUIRED):
+        check = history.create(PriceCheckRecord(reservation_id=stored.id, status=status), [])
+        service.process(check, stored, consecutive_failures=1)
+    assert [alert.title for alert in delivered] == [
+        "Je nutné přihlášení na Booking.com",
+        "Je nutné ruční ověření CAPTCHA",
+    ]
+    assert all(alert.message.startswith("Safe Hotel: ") for alert in delivered)
 
 
 def test_notification_failure_does_not_invalidate_price_check(tmp_path) -> None:  # noqa: ANN001

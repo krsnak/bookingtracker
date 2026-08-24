@@ -4,6 +4,7 @@
 {% for item in items %}<article><h2><a href="{{ url('reservation_detail', reservation_id=item.reservation.id) }}">{{ item.reservation.property_name or 'Neuvedené ubytování' }}</a></h2>
 <p>{{ format_date_range(item.reservation.check_in, item.reservation.check_out) }} · {{ item.reservation.room_type or 'Neuvedený typ pokoje' }}</p>
 <p>Rezervovaná cena: {{ format_money(item.reservation.booked_total_price, item.reservation.currency) }}{% if item.latest and item.latest.comparison and item.latest.comparison.comparable %} · Aktuální cena: {{ format_money(item.latest.comparison.current_price, item.latest.comparison.currency) }}{% endif %}</p>
-<p class="ui-meta">Stav poslední kontroly: {{ status_label(item.latest.status) if item.latest else 'Dosud nezkontrolováno' }}</p></article>{% endfor %}
+<p class="ui-meta">Stav poslední kontroly: {{ check_result_text(item.latest) if item.latest else 'Dosud nezkontrolováno' }}</p>
+<p class="ui-meta">Další pokus: {{ format_check_datetime(item.latest.next_check_at if item.latest and item.latest.next_check_at else (item.schedule.next_check_at if item.schedule else none)) }}</p></article>{% endfor %}
 <details class="ui-diagnostics"><summary>Diagnostika</summary><p>Prohlížeč: {{ status_label(browser.state) }} · Plánovač: {{ 'Spuštěno' if scheduler_running else 'Zastaveno' }}</p></details>
 {% endblock %}
