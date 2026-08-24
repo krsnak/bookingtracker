@@ -49,6 +49,18 @@ class CheckReasonCode(StrEnum):
     UNEXPECTED_ERROR = "unexpected_error"
 
 
+class CheckDiagnosticPhase(StrEnum):
+    PAGE_NAVIGATION = "page_navigation"
+    PAGE_STATE_DETECTION = "page_state_detection"
+    OFFER_COLLECTION = "offer_collection"
+    ROOM_NAME = "room_name"
+    MEAL_PLAN = "meal_plan"
+    CANCELLATION = "cancellation"
+    PRICE = "price"
+    CURRENCY = "currency"
+    EXACT_MATCH = "exact_match"
+
+
 class PriceComparison(BaseModel):
     """A result only when booked and current amounts have the same tax basis."""
 
@@ -89,6 +101,7 @@ class PriceCheckRecord(BaseModel):
     error: str | None = None
     reason_code: CheckReasonCode | None = None
     safe_error_detail: str | None = None
+    diagnostic_phase: CheckDiagnosticPhase | None = None
     consecutive_failure_count: int = Field(default=0, ge=0)
     next_check_at: datetime | None = None
     warnings: list[str] = Field(default_factory=list)

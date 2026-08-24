@@ -400,9 +400,26 @@ overlap. Busy, leased, missing, and inactive outcomes are typed and do not creat
 Every completed scheduled or manual attempt follows the same policy, atomic check/schedule
 persistence, exact matcher, alert service, and deduplication. It emits one sanitized stdout JSON
 event named `booking_check_completed`. No diagnostic HTTP endpoint exposes SQLite or raw page
-data. Production validation for 0.5.1 is pending on STORHAUGEN GARD using the exact command and
-procedure documented in `README.md`. Reservation overview, images, and expanded detail/history
-are deferred respectively to 0.5.2, 0.5.3, and 0.5.4.
+data. Production validation on STORHAUGEN GARD found the precise failure path:
+`CheckRunner` → `PriceCheckService` → thread-bound browser → `BookingBrowserService.navigate`
+→ `_refresh_page_state` → `detect_page_state`. A Playwright timeout from the optional
+`body.inner_text(timeout=1000)` read escaped page-state detection and was caught by the outer
+navigation handler, incorrectly becoming a global navigation timeout before offer parsing.
+
+Version 0.5.2 replaces that read with one central `OptionalLocatorReader`. It first performs a
+non-waiting existence check, limits each optional text read to 100 ms, shares a 250 ms budget
+across page-state selectors, and catches only Playwright's expected locator timeout. Unexpected
+programming errors are not masked. Actual `page.goto` timeouts remain navigation timeouts. The
+already-existing one-shot HTML snapshot remains the input to deterministic offer parsing; a
+partial snapshot with valid later candidates continues to exact matching, while absent mandatory
+offer structure becomes `parser_error` and rejected candidates become `no_comparable_offer`.
+
+Migration 6 adds the non-sensitive `diagnostic_phase` column. Stable values identify
+`page_navigation`, `page_state_detection`, `offer_collection`, or `exact_match` without storing
+selectors or HTML. Ordinary Czech UI shows only approved Czech safe details; sanitized library
+text is confined to closed technical diagnostics. Production validation for 0.5.2 is pending.
+Reservation overview, images, and expanded detail/history are deferred respectively to 0.5.3,
+0.5.4, and 0.5.5.
 
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every

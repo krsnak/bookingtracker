@@ -282,6 +282,37 @@ def test_detail_falls_back_for_pre_diagnostics_history_row(tmp_path) -> None:  #
     assert "timeout" not in detail.text
 
 
+def test_raw_english_library_detail_is_only_in_closed_technical_diagnostics(
+    tmp_path,
+) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    started = datetime(2026, 8, 24, 20, tzinfo=UTC)
+    app.state.history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            checked_at=started,
+            started_at=started,
+            finished_at=started + timedelta(seconds=1),
+            duration_ms=1000,
+            status=PriceCheckStatus.TIMEOUT,
+            reason_code=CheckReasonCode.TIMEOUT,
+            safe_error_detail="Locator.inner_text: Timeout 1000ms exceeded",
+            consecutive_failure_count=4,
+        ),
+        [],
+    )
+    with TestClient(app) as client:
+        detail = client.get(f"/reservations/{stored.id}")
+
+    ordinary, technical = detail.text.split("<details", 1)
+    assert "Locator.inner_text" not in ordinary
+    assert "Kontrolu ceny se nepodařilo dokončit v časovém limitu." in ordinary
+    assert "Sanitizovaný detail: Locator.inner_text: Timeout 1000ms exceeded" in technical
+
+
 def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tmp_path) -> None:  # noqa: ANN001
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False

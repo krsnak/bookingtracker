@@ -14,7 +14,12 @@ from app.alerts.service import AlertService
 from app.db.repository import ReservationRepository, ScheduleStateRepository
 from app.pricing.check_service import PriceCheckService
 from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
-from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
+from app.pricing.models import (
+    CheckDiagnosticPhase,
+    CheckReasonCode,
+    PriceCheckRecord,
+    PriceCheckStatus,
+)
 from app.scheduling.models import (
     CheckRunBlockReason,
     CheckRunOutcome,
@@ -112,6 +117,7 @@ class CheckRunner:
                         ),
                         status=PriceCheckStatus.BROWSER_ERROR,
                         reason_code=CheckReasonCode.UNEXPECTED_ERROR,
+                        diagnostic_phase=CheckDiagnosticPhase.PAGE_NAVIGATION,
                         safe_error_detail=safe_detail,
                         error=safe_detail,
                     ),
@@ -165,6 +171,9 @@ class CheckRunner:
             "reservation_id": str(record.reservation_id),
             "status": record.status.value,
             "reason_code": record.reason_code.value if record.reason_code else None,
+            "diagnostic_phase": (
+                record.diagnostic_phase.value if record.diagnostic_phase else None
+            ),
             "duration_ms": record.duration_ms,
             "consecutive_failure_count": record.consecutive_failure_count,
             "next_check_at": record.next_check_at.isoformat() if record.next_check_at else None,

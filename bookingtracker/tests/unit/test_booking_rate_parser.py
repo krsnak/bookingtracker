@@ -7,6 +7,8 @@ from pathlib import Path
 from app.booking.models import ParseStatus
 from app.booking.normalization import parse_price
 from app.booking.parser import BookingRateParser
+from app.matching.matcher import ExactReservationMatcher
+from test_exact_reservation_matcher import reservation
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 PARSER = BookingRateParser()
@@ -109,3 +111,25 @@ def test_legacy_booking_rate_row_fallback_is_scoped_and_explicit() -> None:
     assert offer.free_cancellation is True
     assert offer.taxes_included is None
     assert offer.evidence["rate_selector"] == "tr.js-rt-block-row"
+
+
+def test_storhaugen_missing_optional_evidence_keeps_parsing_later_exact_offer() -> None:
+    result = parse_fixture("booking_storhaugen_optional_missing.html")
+
+    assert result.status is ParseStatus.PARTIAL
+    assert len(result.offers) == 1
+    assert result.offers[0].room_name == "Standard Double Room"
+    assert result.offers[0].meal_plan is None
+    assert result.offers[0].payment_conditions is None
+    assert result.offers[0].genius is None
+    matched = ExactReservationMatcher().match(
+        reservation(
+            property_name="STORHAUGEN GARD",
+            room_type="Standard Double Room",
+            booked_total_price=Decimal("1500"),
+            currency="NOK",
+        ),
+        result.offers,
+    )
+    assert matched.accepted
+    assert matched.matched_rate == result.offers[0]

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
+from app.alerts.models import AlertType
+from app.alerts.service import AlertService
 from app.booking.models import ParseResult, ParseStatus
+from app.booking.parser import BookingRateParser
 from app.browser.models import AuthenticationState, NavigationResult, NavigationStatus
 from app.db.connection import SQLiteDatabase
-from app.db.repository import PriceCheckRepository, ReservationRepository
+from app.db.repository import AlertRepository, PriceCheckRepository, ReservationRepository
 from app.matching.matcher import ExactReservationMatcher
 from app.pricing.check_service import PriceCheckService
-from app.pricing.models import PriceCheckStatus
+from app.pricing.models import CheckDiagnosticPhase, CheckReasonCode, PriceCheckStatus
 from app.pricing.service import ComparablePriceService
 from test_exact_reservation_matcher import rate, reservation
 
@@ -34,6 +38,15 @@ class FakeBrowser:
 
     def current_page(self) -> FakePage:
         return FakePage()
+
+
+class SnapshotBrowser(FakeBrowser):
+    def __init__(self, html: str) -> None:
+        super().__init__(NavigationStatus.SUCCESS)
+        self.html = html
+
+    def page_content(self) -> str:
+        return self.html
 
 
 class FakeParser:
@@ -84,7 +97,7 @@ def test_no_match_ambiguous_and_failures_are_persisted_without_prices(tmp_path) 
         (
             NavigationStatus.SUCCESS,
             ParseResult(status=ParseStatus.SUCCESS, offers=[]),
-            PriceCheckStatus.NO_MATCH,
+            PriceCheckStatus.PARSER_ERROR,
         ),
         (
             NavigationStatus.SUCCESS,
@@ -144,3 +157,108 @@ def test_failed_check_cannot_carry_a_previous_successful_price(tmp_path) -> None
     assert failed.comparison is None
     assert history_rows[0].comparison is None
     assert history_rows[1].comparison is not None
+
+
+def test_storhaugen_partial_snapshot_selects_later_exact_offer(tmp_path) -> None:  # noqa: ANN001
+    html = (
+        Path(__file__).parents[1]
+        / "fixtures"
+        / "booking_storhaugen_optional_missing.html"
+    ).read_text()
+    database = SQLiteDatabase(tmp_path / "storhaugen.db")
+    reservations = ReservationRepository(database)
+    stored = reservations.create(
+        reservation(
+            property_name="STORHAUGEN GARD",
+            room_type="Standard Double Room",
+            booked_total_price=Decimal("1500"),
+            currency="NOK",
+            booking_url="https://example.test/hotel",
+        )
+    )
+    history = PriceCheckRepository(database)
+    checked = PriceCheckService(
+        SnapshotBrowser(html),  # type: ignore[arg-type]
+        BookingRateParser(),
+        ExactReservationMatcher(),
+        ComparablePriceService(),
+        history,
+    )
+
+    result = checked.check(stored)
+
+    assert result.status is PriceCheckStatus.SUCCESS
+    assert result.diagnostic_phase is CheckDiagnosticPhase.EXACT_MATCH
+    assert result.comparison is not None
+    assert result.comparison.delta_amount == Decimal("0")
+    assert len(history.latest(stored.id).rate_offers) == 1  # type: ignore[union-attr]
+
+
+def test_snapshot_no_exact_offer_and_missing_required_structure_are_distinct(
+    tmp_path,
+) -> None:  # noqa: ANN001
+    fixture = (
+        Path(__file__).parents[1]
+        / "fixtures"
+        / "booking_storhaugen_optional_missing.html"
+    ).read_text()
+
+    class NullNotifier:
+        def deliver(self, alert) -> None:  # noqa: ANN001
+            del alert
+
+    results = []
+    for index, (html, room_type, expected, reason, phase) in enumerate(
+        (
+            (
+                fixture,
+                "Unrelated Family Suite",
+                PriceCheckStatus.NO_MATCH,
+                CheckReasonCode.NO_COMPARABLE_OFFER,
+                CheckDiagnosticPhase.EXACT_MATCH,
+            ),
+            (
+                "<main>Booking page without availability structure</main>",
+                "Standard Double Room",
+                PriceCheckStatus.PARSER_ERROR,
+                CheckReasonCode.PARSER_ERROR,
+                CheckDiagnosticPhase.OFFER_COLLECTION,
+            ),
+        )
+    ):
+        database = SQLiteDatabase(tmp_path / f"case-{index}.db")
+        reservations = ReservationRepository(database)
+        stored = reservations.create(
+            reservation(
+                property_name="STORHAUGEN GARD",
+                room_type=room_type,
+                booked_total_price=Decimal("1500"),
+                currency="NOK",
+                booking_url="https://example.test/hotel",
+            )
+        )
+        history = PriceCheckRepository(database)
+        result = PriceCheckService(
+            SnapshotBrowser(html),  # type: ignore[arg-type]
+            BookingRateParser(),
+            ExactReservationMatcher(),
+            ComparablePriceService(),
+            history,
+        ).check(stored)
+        AlertService(AlertRepository(database), history, NullNotifier()).process(
+            result, stored, consecutive_failures=3
+        )
+        assert result.status is expected
+        assert result.reason_code is reason
+        assert result.diagnostic_phase is phase
+        assert result.comparison is None
+        assert not any(
+            alert.type is AlertType.PRICE_DROP
+            for alert in AlertRepository(database).list_for_reservation(stored.id)
+        )
+        results.append(result)
+
+    assert results[0].safe_error_detail == "Nebyla nalezena bezpečně porovnatelná nabídka."
+    assert results[1].safe_error_detail == (
+        "Povinná struktura cenové nabídky nebyla rozpoznána."
+    )

@@ -32,6 +32,12 @@ _REASON_TEXTS = {
     CheckReasonCode.UNEXPECTED_ERROR: "Kontrola skončila neočekávanou technickou chybou.",
 }
 
+_VISIBLE_SAFE_DETAILS = {
+    "Volitelný prvek nabídky nebyl nalezen.",
+    "Povinná struktura cenové nabídky nebyla rozpoznána.",
+    "Nebyla nalezena bezpečně porovnatelná nabídka.",
+}
+
 
 def check_reason_text(value: CheckReasonCode | str | None) -> str:
     try:
@@ -78,6 +84,11 @@ def manual_check_flash(record: PriceCheckRecord) -> str:
             "porovnatelná nabídka."
         )
     return "Kontrolu ceny se nepodařilo dokončit. Podrobnosti jsou uvedeny níže."
+
+
+def visible_safe_error_detail(record: PriceCheckRecord) -> str | None:
+    detail = record.safe_error_detail
+    return detail if detail in _VISIBLE_SAFE_DETAILS else None
 
 
 def format_check_datetime(value: datetime | None) -> str:

@@ -1,6 +1,8 @@
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
+from app.browser.dom import OptionalLocatorReader
+
 ROOT = Path.home() / "BookingTracker"
 PROFILE = ROOT / "data" / "booking_profile"
 
@@ -39,11 +41,8 @@ with sync_playwright() as p:
 
     for i in range(rows.count()):
         row = rows.nth(i)
-
-        try:
-            text = row.inner_text().strip()
-        except:
-            continue
+        reader = OptionalLocatorReader(row)
+        text = reader.text(":scope")
 
         if not text:
             continue
@@ -55,13 +54,7 @@ with sync_playwright() as p:
             ".hprt-roomtype-link",
             '[data-testid="room-type"]',
         ]:
-            item = row.locator(selector)
-
-            if item.count() > 0:
-                try:
-                    room = item.first.inner_text().strip()
-                except:
-                    pass
+            room = reader.text(selector)
 
             if room:
                 break
@@ -76,17 +69,9 @@ with sync_playwright() as p:
             ".bui-price-display__value",
             ".prco-valign-middle-helper",
         ]:
-            items = row.locator(selector)
-
-            for j in range(items.count()):
-                try:
-                    value = items.nth(j).inner_text().strip()
-
-                    if value and value not in price_candidates:
-                        price_candidates.append(value)
-
-                except:
-                    pass
+            for value in reader.texts(selector):
+                if value not in price_candidates:
+                    price_candidates.append(value)
 
         results.append(
             {

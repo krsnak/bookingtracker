@@ -300,8 +300,9 @@ class PriceCheckRepository:
                     booked_comparable_price, current_comparable_price, currency, delta_amount,
                     delta_percent, direction, comparison_reasons_json, comparison_warnings_json,
                     match_result_json, error, warnings_json, started_at, finished_at, duration_ms,
-                    reason_code, safe_error_detail, consecutive_failure_count, next_check_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    reason_code, safe_error_detail, diagnostic_phase,
+                    consecutive_failure_count, next_check_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     str(check.id),
                     str(check.reservation_id),
@@ -332,6 +333,7 @@ class PriceCheckRepository:
                     check.duration_ms,
                     check.reason_code.value if check.reason_code else None,
                     check.safe_error_detail,
+                    check.diagnostic_phase.value if check.diagnostic_phase else None,
                     check.consecutive_failure_count,
                     _utc_iso(check.next_check_at) if check.next_check_at else None,
                 ),
@@ -365,7 +367,8 @@ class PriceCheckRepository:
         with self.database.transaction() as connection:
             cursor = connection.execute(
                 """UPDATE price_checks SET started_at=?, finished_at=?, duration_ms=?,
-                reason_code=?, safe_error_detail=?, consecutive_failure_count=?, next_check_at=?
+                reason_code=?, safe_error_detail=?, diagnostic_phase=?,
+                consecutive_failure_count=?, next_check_at=?
                 WHERE id=?""",
                 (
                     _utc_iso(check.started_at or check.checked_at),
@@ -373,6 +376,7 @@ class PriceCheckRepository:
                     check.duration_ms,
                     check.reason_code.value if check.reason_code else None,
                     safe_detail,
+                    check.diagnostic_phase.value if check.diagnostic_phase else None,
                     check.consecutive_failure_count,
                     _utc_iso(check.next_check_at) if check.next_check_at else None,
                     str(check.id),

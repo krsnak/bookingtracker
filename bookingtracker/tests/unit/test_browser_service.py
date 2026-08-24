@@ -4,21 +4,38 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+from app.browser.dom import OptionalLocatorReader
 from app.browser.models import AuthenticationState, BrowserState, NavigationStatus
 from app.browser.service import BookingBrowserService
 from app.config import BrowserSettings
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 
 class FakeLocator:
-    def __init__(self, count: int = 0, text: str = "") -> None:
+    def __init__(
+        self, count: int = 0, text: str = "", inner_error: Exception | None = None
+    ) -> None:
         self._count = count
         self._text = text
+        self._inner_error = inner_error
+        self.inner_text_timeouts: list[int] = []
+
+    @property
+    def first(self) -> FakeLocator:
+        return self
+
+    def nth(self, index: int) -> FakeLocator:
+        del index
+        return self
 
     def count(self) -> int:
         return self._count
 
     def inner_text(self, timeout: int) -> str:
-        del timeout
+        self.inner_text_timeouts.append(timeout)
+        if self._inner_error:
+            raise self._inner_error
         return self._text
 
 
@@ -27,6 +44,7 @@ class FakePage:
         self.url = "https://www.booking.com/"
         self.closed = False
         self.body_text = ""
+        self.body_error: Exception | None = None
         self.selector_counts: dict[str, int] = {}
         self.goto_error: Exception | None = None
         self.goto_calls: list[str] = []
@@ -35,7 +53,7 @@ class FakePage:
 
     def locator(self, selector: str) -> FakeLocator:
         if selector == "body":
-            return FakeLocator(text=self.body_text)
+            return FakeLocator(count=1, text=self.body_text, inner_error=self.body_error)
         return FakeLocator(count=self.selector_counts.get(selector, 0))
 
     def goto(self, url: str, **_: object) -> None:
@@ -168,6 +186,78 @@ def test_navigation_maps_timeout_and_browser_crash(tmp_path: Path) -> None:
     page.goto_error = RuntimeError("Target page, context or browser has been closed")
     crash = service.navigate("https://www.booking.com/hotel/crash")
     assert crash.status is NavigationStatus.PAGE_CLOSED
+
+
+def test_optional_page_state_locator_timeout_does_not_become_navigation_timeout(
+    tmp_path: Path,
+) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.body_error = PlaywrightTimeoutError("Locator.inner_text timed out")
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.SUCCESS
+
+
+def test_challenge_selector_survives_optional_body_text_timeout(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.body_error = PlaywrightTimeoutError("Locator.inner_text timed out")
+    page.selector_counts['iframe[src*="captcha"]'] = 1
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.CAPTCHA_REQUIRED
+
+
+def test_optional_locator_reader_skips_missing_and_expected_timeout() -> None:
+    page = FakePage()
+    missing = OptionalLocatorReader(page)
+    assert missing.text('[data-testid="optional"]') is None
+    assert missing.texts('[data-testid="optional"]') == []
+
+    page.body_error = PlaywrightTimeoutError("expected locator timeout")
+    timed_out = OptionalLocatorReader(page, total_timeout_ms=80, per_locator_timeout_ms=50)
+    assert timed_out.text("body") is None
+    assert timed_out.texts("body") == []
+
+
+def test_optional_locator_reader_does_not_mask_programming_error() -> None:
+    page = FakePage()
+    page.body_error = ValueError("broken test implementation")
+    with pytest.raises(ValueError, match="broken test implementation"):
+        OptionalLocatorReader(page).text("body")
+
+
+def test_optional_locator_reader_shares_one_bounded_budget() -> None:
+    now = [0.0]
+    requested_timeouts: list[int] = []
+
+    class SlowLocator(FakeLocator):
+        def inner_text(self, timeout: int) -> str:
+            requested_timeouts.append(timeout)
+            now[0] += timeout / 1000
+            raise PlaywrightTimeoutError("optional locator timeout")
+
+    class SlowPage(FakePage):
+        def locator(self, selector: str) -> FakeLocator:
+            del selector
+            return SlowLocator(count=1)
+
+    reader = OptionalLocatorReader(
+        SlowPage(),
+        total_timeout_ms=250,
+        per_locator_timeout_ms=100,
+        clock=lambda: now[0],
+    )
+    assert [reader.text(str(index)) for index in range(4)] == [None, None, None, None]
+    assert sum(requested_timeouts) <= 250
+    assert len(requested_timeouts) == 3
 
 
 def test_browser_start_failure_is_reported(tmp_path: Path) -> None:

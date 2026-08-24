@@ -60,6 +60,7 @@ from app.presentation import (
     format_check_datetime,
     format_duration,
     manual_check_flash,
+    visible_safe_error_detail,
 )
 from app.pricing.check_service import PriceCheckService
 from app.pricing.service import ComparablePriceService
@@ -266,6 +267,7 @@ def create_app(
                 "format_check_datetime": format_check_datetime,
                 "format_duration": format_duration,
                 "enum_value": enum_value,
+                "visible_safe_error_detail": visible_safe_error_detail,
                 **context,
             },
             status_code=status_code,

@@ -9,7 +9,7 @@ import pytest
 from app.db.connection import SQLiteDatabase
 from app.db.migrations import MIGRATIONS
 from app.db.repository import PriceCheckRepository, ReservationRepository
-from app.pricing.models import PriceCheckRecord, PriceCheckStatus
+from app.pricing.models import CheckDiagnosticPhase, PriceCheckRecord, PriceCheckStatus
 from test_exact_reservation_matcher import rate, reservation
 
 
@@ -114,6 +114,7 @@ def test_migration_five_preserves_version_050_history_and_backfills_on_read(tmp_
             "safe_error_detail",
             "consecutive_failure_count",
             "next_check_at",
+            "diagnostic_phase",
         } <= columns
         assert connection.execute("SELECT count(*) FROM reservations").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM price_checks").fetchone()[0] == 1
@@ -121,3 +122,60 @@ def test_migration_five_preserves_version_050_history_and_backfills_on_read(tmp_
     assert loaded is not None
     assert loaded.started_at == loaded.checked_at
     assert loaded.consecutive_failure_count == 0
+    assert loaded.diagnostic_phase is None
+
+
+def test_diagnostic_phase_round_trips_after_migration_six(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "phase.db")
+    stored = ReservationRepository(database).create(reservation(active=True))
+    history = PriceCheckRepository(database)
+    history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            status=PriceCheckStatus.PARSER_ERROR,
+            diagnostic_phase=CheckDiagnosticPhase.OFFER_COLLECTION,
+        ),
+        [],
+    )
+
+    loaded = PriceCheckRepository(SQLiteDatabase(database.path)).latest(stored.id)
+    assert loaded is not None
+    assert loaded.diagnostic_phase is CheckDiagnosticPhase.OFFER_COLLECTION
+
+
+def test_migration_six_preserves_version_051_database(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "version-051.db")
+    original = reservation(active=True)
+    repository = ReservationRepository(database)
+    with database.transaction() as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        for version, sql in MIGRATIONS[:5]:
+            connection.executescript(sql)
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, '2026-08-24T00:00:00+00:00')",
+                (version,),
+            )
+        values = repository._values(original)  # noqa: SLF001
+        connection.execute(
+            repository._insert_sql(),  # noqa: SLF001
+            tuple(values[column] for column in repository._columns()),  # noqa: SLF001
+        )
+        connection.execute(
+            """INSERT INTO price_checks (
+                id, reservation_id, run_id, checked_at, status, matched,
+                comparison_reasons_json, comparison_warnings_json, warnings_json,
+                reason_code, safe_error_detail, consecutive_failure_count
+            ) VALUES (?, ?, 'manual', ?, 'timeout', 0, '[]', '[]', '[]',
+                'timeout', 'safe legacy detail', 4)""",
+            (str(uuid4()), str(original.id), datetime(2026, 8, 24, tzinfo=UTC).isoformat()),
+        )
+
+    database.migrate()
+    loaded = PriceCheckRepository(SQLiteDatabase(database.path)).latest(original.id)
+    assert loaded is not None
+    assert loaded.reason_code is not None and loaded.reason_code.value == "timeout"
+    assert loaded.safe_error_detail == "safe legacy detail"
+    assert loaded.consecutive_failure_count == 4
+    assert loaded.diagnostic_phase is None

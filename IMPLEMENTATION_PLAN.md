@@ -24,8 +24,9 @@ production-complete.
 
 Phases 0–10 are complete. The architecture supports macOS development and
 Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
-after production validation. The diagnostic 0.5.1 implementation is complete
-with production validation pending; Phases 11B–11D are not started.
+after production validation. Diagnostic 0.5.1 is production-validated. Parser
+reliability 0.5.2 is implementation complete with production validation pending;
+Phases 11B–11D are not started.
 
 | Scope | Status |
 | --- | --- |
@@ -33,7 +34,8 @@ with production validation pending; Phases 11B–11D are not started.
 | PDF import 0.4.3 | PRODUCTION-FUNCTIONAL, MONITORED |
 | Phase 11 | IN PROGRESS |
 | Phase 11A / 0.5.0 | COMPLETE |
-| Diagnostic 0.5.1 | IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING |
+| Diagnostic 0.5.1 | COMPLETE, PRODUCTION-VALIDATED |
+| Parser reliability 0.5.2 | IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING |
 | Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
@@ -219,8 +221,9 @@ by TripWatch's information density without copying its brand or source code.
 BookingTracker remains a local, single-user Home Assistant application. Phases
 0–10 remain complete, the production PDF import from 0.4.3 remains functional
 and monitored. Phase 11A / 0.5.0 is complete after production validation. The
-diagnostic 0.5.1 implementation is complete and awaits the STORHAUGEN GARD Pi
-validation; later Phase 11 items have not started.
+diagnostic 0.5.1 implementation is production-validated. That validation found a false global
+timeout caused by one optional locator read. Parser reliability 0.5.2 fixes the root cause and
+awaits Pi validation; later Phase 11 items have not started.
 
 ### Phase 11A — navigation, Czech language, and typography (complete, 0.5.0)
 
@@ -243,7 +246,7 @@ validation; later Phase 11 items have not started.
    larger than 28 px, card titles 17–18 px, metadata 12–13 px, compact spacing
    and controls, accessible focus states, keyboard operation, and mobile layout.
 
-### Diagnostic intermediate release (implementation complete; production validation pending, 0.5.1)
+### Diagnostic intermediate release (complete and production-validated, 0.5.1)
 
 1. [x] Persist typed reason codes, sanitized details, duration, failure count,
    and next-check state for every attempt.
@@ -253,13 +256,27 @@ validation; later Phase 11 items have not started.
    persistent browser context, exact matcher, persistence, and alert policy.
 4. [x] Reject concurrent browser navigation and active manual leases without
    waiting, preserve CSRF and arbitrary Ingress prefixes, and show Czech results.
-5. [ ] Validate one real STORHAUGEN GARD attempt on Raspberry Pi 4: install
+5. [x] Validate one real STORHAUGEN GARD attempt on Raspberry Pi 4: install
    0.5.1, close the remote lease, click once, inspect `Poslední kontrola`, then run
    `ha apps logs 96d726fc_bookingtracker | tail -n 200 | grep -Ei 'STORHAUGEN|check_result|reason_code'`.
-   Confirm exactly one sanitized `booking_check_completed` event, persistence
-   after reload/restart, and no false price delta or PRICE_DROP on failure.
+   The persisted attempt took 10.79 s and reported `timeout` because
+   `detect_page_state` let `Locator.inner_text: Timeout 1000ms exceeded` escape into the
+   navigation timeout handler. This established the 0.5.2 reliability priority.
 
-### Phase 11B — reservation overview (not started; planned 0.5.2)
+### Parser reliability (implementation complete; production validation pending, 0.5.2)
+
+1. [x] Bound optional locator reads under one shared budget and catch only expected
+   Playwright locator timeouts.
+2. [x] Preserve genuine navigation timeout classification while mapping missing mandatory
+   offer structure to `parser_error` and matcher rejection to `no_comparable_offer`.
+3. [x] Persist a safe stable diagnostic phase without selectors, HTML, or page content.
+4. [x] Hide raw English library detail from ordinary UI and notifications.
+5. [x] Add a sanitized STORHAUGEN fixture with missing optional evidence and a later valid
+   exact candidate, plus runtime-budget and actual Playwright timeout regressions.
+6. [ ] Repeat the STORHAUGEN production check on 0.5.2 and confirm the locator timeout no
+   longer terminates navigation or appears as the user-visible failure.
+
+### Phase 11B — reservation overview (not started; planned 0.5.3)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -276,7 +293,7 @@ validation; later Phase 11 items have not started.
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.3)
+### Phase 11C — property images (not started; planned 0.5.4)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -291,7 +308,7 @@ validation; later Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (not started; planned 0.5.4)
+### Phase 11D — reservation detail and price history (not started; planned 0.5.5)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,

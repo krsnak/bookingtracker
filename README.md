@@ -1,6 +1,8 @@
 # BookingTracker
 
-Version 0.5.1 adds a safe, serialized manual price check with persisted diagnostics,
+Version 0.5.2 fixes selector-timeout reliability after the 0.5.1 production diagnostic
+identified a one-second optional `body.inner_text` read as the source of a false global timeout.
+Version 0.5.1 added a safe, serialized manual price check with persisted diagnostics,
 Czech results, and one sanitized structured stdout event. Version 0.5.0 completed Czech
 navigation, presentation helpers, and compact typography after production validation. Version
 0.4.3 makes Booking's Czech/English accommodation waiting sentence the authoritative property
@@ -58,8 +60,9 @@ Phase 11 — Czech frontend and reservation dashboard — is in progress. It wil
 the local single-user Home Assistant interface fully Czech, compact, and
 logically navigable, taking inspiration only from TripWatch's information
 density without copying its brand or source code. Phase 11A / 0.5.0 is COMPLETE after
-production validation. The 0.5.1 diagnostic intermediate step is implementation complete with
-production validation pending; Phases 11B–11D remain planned.
+production validation. The 0.5.1 diagnostic intermediate step is production-validated. The
+0.5.2 parser reliability fix is implementation complete with production validation pending;
+Phases 11B–11D remain planned.
 
 - **11A / 0.5.0 — Navigation, Czech language, and typography:** a `Rezervace`
   home page, Czech global navigation and presentation mappings, reliable back
@@ -67,14 +70,18 @@ production validation pending; Phases 11B–11D remain planned.
 - **Diagnostic / 0.5.1 — Manual check and safe diagnostics:** one prominent,
   CSRF-protected and Ingress-aware manual check through the shared serialized runner,
   persisted Czech diagnostics, alerts, and one sanitized stdout JSON event. Implementation
-  complete; Raspberry Pi production validation pending.
-- **11B / 0.5.2 — Reservation overview:** month-grouped responsive cards with
+  complete and production-validated on STORHAUGEN GARD.
+- **Reliability / 0.5.2 — Optional DOM reads:** bounded optional locator reads,
+  distinct navigation/parser/exact-match phases, safe Czech diagnostics, and continued
+  candidate parsing after incomplete optional evidence. Implementation complete; Raspberry Pi
+  production validation pending.
+- **11B / 0.5.3 — Reservation overview:** month-grouped responsive cards with
   exact-match-safe comparable prices, Czech status/date presentation, and
   clear add/check-all actions.
-- **11C / 0.5.3 — Property images:** validated manual uploads, optimized local
+- **11C / 0.5.4 — Property images:** validated manual uploads, optimized local
   thumbnails under `/data`, safe relative database references, and a local
   placeholder; any Booking-derived image remains a later optional step.
-- **11D / 0.5.4 — Reservation detail and price history:** compact facts,
+- **11D / 0.5.5 — Reservation detail and price history:** compact facts,
   accepted comparable-price deltas, local history chart, reservation actions,
   and separately collapsed diagnostics.
 
@@ -82,9 +89,9 @@ The phase retains CSRF, arbitrary HA Ingress prefixes, the browser lifecycle,
 scheduler, Home Assistant/Telegram notification boundary, and the rule that a
 price is comparable only after an accepted exact or explicitly better match.
 
-## Production validation for 0.5.1
+## Production validation for 0.5.2
 
-After installing 0.5.1 on the Raspberry Pi, close any remote browser lease, open the
+After installing 0.5.2 on the Raspberry Pi, close any remote browser lease, open the
 STORHAUGEN GARD reservation detail, and press **Zkontrolovat nyní** exactly once. Confirm the
 Czech flash result and the refreshed `Poslední kontrola` fields. Then run:
 
@@ -94,7 +101,9 @@ ha apps logs 96d726fc_bookingtracker | tail -n 200 | grep -Ei 'STORHAUGEN|check_
 
 There must be exactly one `booking_check_completed` JSON record for that click, containing the
 property name, internal UUID, status, reason code, duration, failure count, next check time, and
-only a sanitized detail. It must contain no Booking URL, confirmation number, PIN, e-mail,
+the stable `diagnostic_phase`. The previous `Locator.inner_text: Timeout 1000ms exceeded` must
+not reappear as a global timeout merely because optional page-state text is unavailable. The
+record must contain no Booking URL, confirmation number, PIN, e-mail,
 cookie, token, HTML, traceback, or local path. Reload the detail to confirm persistence. A failed
 or non-comparable result must not show a price delta or create `PRICE_DROP`; login/CAPTCHA must
 request manual recovery through the existing protected remote session before retrying.

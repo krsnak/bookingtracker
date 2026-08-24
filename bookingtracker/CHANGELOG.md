@@ -2,14 +2,25 @@
 
 ## Unreleased
 
+## 0.5.2
+
+- Fixed the 0.5.1 production root cause where an optional one-second Playwright
+  `body.inner_text` timeout escaped page-state detection and became a false navigation timeout.
+- Added one bounded optional-locator reader, partial-snapshot candidate continuation, stable safe
+  diagnostic phases, and Czech-only ordinary diagnostic presentation.
+- Added migration 6 and sanitized STORHAUGEN regressions for missing optional evidence, later exact
+  candidates, parser/no-comparable outcomes, actual locator timeout, and bounded runtime.
+- Production validation on Raspberry Pi remains pending.
+
 ## 0.5.1
 
 - Added a prominent CSRF-protected, Ingress-aware manual reservation check through the existing
   serialized runner and persistent browser context.
 - Added non-blocking busy/manual-lease outcomes, Czech result flashes, persisted diagnostics, and
   one sanitized `booking_check_completed` stdout event for every completed manual or scheduled run.
-- Preserved exact-match pricing, failure/backoff state, alert thresholds and deduplication; Raspberry
-  Pi production validation with STORHAUGEN GARD remains pending.
+- Preserved exact-match pricing, failure/backoff state, alert thresholds and deduplication.
+- Production validation with STORHAUGEN GARD identified the escaped optional
+  `Locator.inner_text` timeout fixed by 0.5.2.
 
 ## 0.5.0
 

@@ -4,9 +4,9 @@ State is persisted only in `/data`: SQLite, logs, and the Booking browser profil
 
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
 — is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
-The diagnostic 0.5.1 intermediate release is **IMPLEMENTATION COMPLETE, PRODUCTION
-VALIDATION PENDING**. Phase 11B is planned for 0.5.2, Phase 11C for 0.5.3, and
-Phase 11D for 0.5.4.
+The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED**.
+Parser reliability 0.5.2 is **IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING**.
+Phase 11B is planned for 0.5.3, Phase 11C for 0.5.4, and Phase 11D for 0.5.5.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
@@ -16,13 +16,25 @@ Images will be validated, optimized, and stored only below `/data`; missing
 images use a local placeholder. CSRF, the persistent browser lifecycle,
 scheduler, and Home Assistant/Telegram notifications remain unchanged.
 
+Version `0.5.2` fixes the production root cause observed through the 0.5.1
+`Zkontrolovat nyní` action on STORHAUGEN GARD. The call path reached
+`detect_page_state`, where optional `body.inner_text(timeout=1000)` raised a Playwright timeout;
+the surrounding browser navigation handler incorrectly classified it as a global timeout before
+the snapshot parser ran. Optional locator reads now use a shared 250 ms budget and at most 100 ms
+per text read, return no evidence when absent, and catch only expected Playwright locator
+timeouts. Real navigation timeouts remain distinct. Partial snapshots continue through later
+candidates; mandatory missing offer structure is `parser_error`, and matcher rejection is
+`no_comparable_offer`. Migration 6 persists only a stable safe diagnostic phase. Raw English
+library detail is hidden outside closed technical diagnostics. Production validation of 0.5.2 is
+pending with the STORHAUGEN procedure documented in the root README.
+
 Version `0.5.1` adds the CSRF-protected, Ingress-aware `Zkontrolovat nyní` action. It uses the
 same non-overlapping shared runner, persistent browser context, exact matcher, schedule state,
 history, alert rules, and deduplication as the scheduler. Completed manual and scheduled checks
 emit one sanitized `booking_check_completed` JSON event to stdout. Busy and active remote-lease
-states return safe Czech messages without creating a check. Production validation is pending:
-install 0.5.1, close the remote lease, click STORHAUGEN GARD once, confirm the refreshed detail,
-and run:
+states return safe Czech messages without creating a check. Production validation is complete:
+the STORHAUGEN GARD attempt persisted the locator-timeout evidence that motivated 0.5.2.
+The diagnostic command remains:
 
 ```bash
 ha apps logs 96d726fc_bookingtracker | tail -n 200 | grep -Ei 'STORHAUGEN|check_result|reason_code'

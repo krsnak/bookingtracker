@@ -169,6 +169,7 @@ def test_czech_check_failed_payload_contains_property_reason_count_and_next_atte
                 reservation_id=stored.id,
                 status=PriceCheckStatus.PARSER_ERROR,
                 reason_code=CheckReasonCode.PARSER_ERROR,
+                safe_error_detail="Locator.inner_text: Timeout 1000ms exceeded",
                 consecutive_failure_count=failures,
                 next_check_at=next_attempt,
             ),
@@ -199,6 +200,7 @@ def test_czech_check_failed_payload_contains_property_reason_count_and_next_atte
             },
         )
     ]
+    assert "Locator.inner_text" not in str(payloads)
 
 
 def test_login_and_captcha_alert_immediately_with_czech_notification(tmp_path) -> None:  # noqa: ANN001,E501

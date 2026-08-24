@@ -71,7 +71,7 @@ def sanitize_error_detail(value: object | None, *, fallback: str | None = None) 
     text = text.splitlines()[0] if text.splitlines() else ""
     for pattern, replacement in _REDACTIONS:
         text = pattern.sub(replacement, text)
-    text = re.sub(r"\s+", " ", text).strip(" .,:;-")
+    text = re.sub(r"\s+", " ", text).strip(" ,:;-")
     if not text:
         return fallback
     return text[:237] + "..." if len(text) > 240 else text

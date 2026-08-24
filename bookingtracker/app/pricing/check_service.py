@@ -13,7 +13,12 @@ from app.db.repository import PriceCheckRepository
 from app.matching.matcher import ExactReservationMatcher
 from app.matching.models import MatchClassification
 from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
-from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
+from app.pricing.models import (
+    CheckDiagnosticPhase,
+    CheckReasonCode,
+    PriceCheckRecord,
+    PriceCheckStatus,
+)
 from app.pricing.service import ComparablePriceService
 from app.reservations.models import Reservation
 
@@ -125,11 +130,12 @@ class PriceCheckService:
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.NO_AVAILABILITY,
                     parser_status=parsed.status,
+                    safe_error_detail="Nebyla nalezena bezpečně porovnatelná nabídka.",
                     warnings=parsed.warnings,
                 ),
                 parsed.offers,
             )
-        if parsed.status is not ParseStatus.SUCCESS:
+        if parsed.status not in {ParseStatus.SUCCESS, ParseStatus.PARTIAL}:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
@@ -138,10 +144,24 @@ class PriceCheckService:
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.PARSER_ERROR,
                     parser_status=parsed.status,
-                    error=parsed.error,
+                    error="Povinná struktura cenové nabídky nebyla rozpoznána.",
                     warnings=parsed.warnings,
                 ),
                 parsed.offers,
+            )
+        if not parsed.offers:
+            return self._persist(
+                PriceCheckRecord(
+                    reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
+                    run_id=run_id or "explicit-check",
+                    status=PriceCheckStatus.PARSER_ERROR,
+                    parser_status=parsed.status,
+                    error="Povinná struktura cenové nabídky nebyla rozpoznána.",
+                    warnings=parsed.warnings,
+                ),
+                [],
             )
         match = self.matcher.match(reservation, parsed.offers)
         if not match.accepted:
@@ -160,7 +180,8 @@ class PriceCheckService:
                     match_classification=match.classification,
                     match_score=match.score,
                     match_result=match,
-                    warnings=match.warnings,
+                    safe_error_detail="Nebyla nalezena bezpečně porovnatelná nabídka.",
+                    warnings=parsed.warnings + match.warnings,
                 ),
                 parsed.offers,
             )
@@ -195,11 +216,33 @@ class PriceCheckService:
                     int((finished_at - (record.started_at or record.checked_at)).total_seconds() * 1000),
                 ),
                 "reason_code": reason,
+                "diagnostic_phase": record.diagnostic_phase
+                or self._diagnostic_phase(record),
                 "safe_error_detail": safe_detail,
                 "error": safe_detail,
             }
         )
         return self.history.create(completed, offers)
+
+    @staticmethod
+    def _diagnostic_phase(record: PriceCheckRecord) -> CheckDiagnosticPhase:
+        if record.status in {
+            PriceCheckStatus.LOGGED_OUT,
+            PriceCheckStatus.CAPTCHA_REQUIRED,
+        }:
+            return CheckDiagnosticPhase.PAGE_STATE_DETECTION
+        if record.status in {
+            PriceCheckStatus.NAVIGATION_ERROR,
+            PriceCheckStatus.TIMEOUT,
+            PriceCheckStatus.BROWSER_ERROR,
+        }:
+            return CheckDiagnosticPhase.PAGE_NAVIGATION
+        if record.status in {
+            PriceCheckStatus.PARSER_ERROR,
+            PriceCheckStatus.NO_AVAILABILITY,
+        }:
+            return CheckDiagnosticPhase.OFFER_COLLECTION
+        return CheckDiagnosticPhase.EXACT_MATCH
 
     @staticmethod
     def _navigation_status(status: NavigationStatus) -> PriceCheckStatus | None:

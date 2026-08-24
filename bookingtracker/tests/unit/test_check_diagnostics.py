@@ -14,7 +14,11 @@ from app.db.repository import (
     ReservationRepository,
     ScheduleStateRepository,
 )
-from app.presentation import check_reason_text, check_result_text
+from app.presentation import (
+    check_reason_text,
+    check_result_text,
+    visible_safe_error_detail,
+)
 from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
 from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
 from app.scheduling.models import CheckTrigger
@@ -89,6 +93,19 @@ def test_short_check_results_never_expose_internal_statuses() -> None:
     for status, text in expected.items():
         record = PriceCheckRecord(reservation_id=reservation().id, status=status)
         assert check_result_text(record) == text
+
+
+def test_only_approved_czech_safe_detail_is_visible_in_ordinary_ui() -> None:
+    czech = PriceCheckRecord(
+        reservation_id=reservation().id,
+        status=PriceCheckStatus.PARSER_ERROR,
+        safe_error_detail="Povinná struktura cenové nabídky nebyla rozpoznána.",
+    )
+    raw_library = czech.model_copy(
+        update={"safe_error_detail": "Locator.inner_text: Timeout 1000ms exceeded"}
+    )
+    assert visible_safe_error_detail(czech) == czech.safe_error_detail
+    assert visible_safe_error_detail(raw_library) is None
 
 
 def test_navigation_network_failure_has_distinct_reason() -> None:
@@ -252,6 +269,7 @@ def test_automatic_check_writes_one_structured_log(tmp_path, caplog, status, lev
     assert payload["property_name"] == stored.property_name
     assert payload["reservation_id"] == str(stored.id)
     assert payload["status"] == status.value
+    assert "diagnostic_phase" in payload
     assert payload["consecutive_failure_count"] == result.consecutive_failure_count
     assert payload["next_check_at"] == result.next_check_at.isoformat()
 
@@ -302,4 +320,5 @@ def test_unexpected_exception_is_persisted_and_safely_logged_without_price_alert
     assert len(records) == 1 and records[0].levelno == logging.ERROR
     logged = records[0].message.casefold()
     assert "unexpected_error" in logged
+    assert "page_navigation" in logged
     assert all(secret not in logged for secret in ("secret", "guest@example", "/users/"))
