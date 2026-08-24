@@ -38,7 +38,7 @@ Production state persists in add-on `/data`:
 - `/data/booking_profile/`
 - `/data/logs/`
 
-Phases 1–10 are complete: reservation import, persistent browser service,
+Phases 0–10 are complete: reservation import, persistent browser service,
 fixture-backed rate parsing, exact reservation matching, SQLite history,
 local scheduling with alerts, the local web UI, and Home Assistant add-on
 packaging.
@@ -48,6 +48,31 @@ match, identical currency, and explicit current taxes/fees inclusion;
 `delta = current - booked`, so negative is cheaper. The complete
 implementation sequence is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 and the deployment/design details are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Phase 11 roadmap
+
+Phase 11 — Czech frontend and reservation dashboard — is planned. It will make
+the local single-user Home Assistant interface fully Czech, compact, and
+logically navigable, taking inspiration only from TripWatch's information
+density without copying its brand or source code. Phase 11A is next; no Phase
+11 work is implemented yet.
+
+- **11A / 0.5.0 — Navigation, Czech language, and typography:** a `Rezervace`
+  home page, Czech global navigation and presentation mappings, reliable back
+  links, active navigation state, and shared compact accessible design tokens.
+- **11B / 0.5.1 — Reservation overview:** month-grouped responsive cards with
+  exact-match-safe comparable prices, Czech status/date presentation, and
+  clear add/check-all actions.
+- **11C / 0.5.2 — Property images:** validated manual uploads, optimized local
+  thumbnails under `/data`, safe relative database references, and a local
+  placeholder; any Booking-derived image remains a later optional step.
+- **11D / 0.5.3 — Reservation detail and price history:** compact facts,
+  accepted comparable-price deltas, local history chart, reservation actions,
+  and separately collapsed diagnostics.
+
+The phase retains CSRF, arbitrary HA Ingress prefixes, the browser lifecycle,
+scheduler, Home Assistant/Telegram notification boundary, and the rule that a
+price is comparable only after an accepted exact or explicitly better match.
 
 ## Home Assistant production verification
 

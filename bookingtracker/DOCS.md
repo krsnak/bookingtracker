@@ -2,6 +2,21 @@
 
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
 
+Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
+— is **PLANNED**; Phase 11A is **NEXT** and Phases 11B–11D are **NOT STARTED**. The plan is
+split into independently releasable parts: Czech navigation and compact
+typography in 0.5.0, the reservation-card overview in 0.5.1, safe local property
+image uploads in 0.5.2, and reservation detail with local price history in
+0.5.3. No Phase 11 behavior is implemented yet.
+
+The planned UI remains server-rendered, local, single-user, and fully
+Ingress-aware. It will translate internal states for normal Czech presentation,
+prepare price/comparability decisions in view-models rather than templates,
+and retain the accepted exact-match gate before showing any price direction.
+Images will be validated, optimized, and stored only below `/data`; missing
+images use a local placeholder. CSRF, the persistent browser lifecycle,
+scheduler, and Home Assistant/Telegram notifications remain unchanged.
+
 Version `0.4.3` gives an anchored Booking waiting sentence absolute priority through the public
 PDF upload path. Conflicting language anchors require review. The compact review card loads its
 own content-hashed, Ingress-safe stylesheet. General multilingual block separation and a

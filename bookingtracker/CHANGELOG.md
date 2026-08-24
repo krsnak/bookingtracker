@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Documented the planned Phase 11 Czech frontend and reservation dashboard,
+  split into releasable 0.5.0–0.5.3 navigation, overview, image, and detail
+  milestones. No application behavior or release version changed.
+
 ## 0.4.3
 
 - Made Booking waiting sentences an authoritative, split-line-safe property identity anchor.

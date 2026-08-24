@@ -1,10 +1,11 @@
 # Implementation plan
 
-## Corrective import release 0.4.1
+## Corrective import releases 0.4.1–0.4.3
 
 Added CTA-resistant property evidence scoring, Czech split-line cancellation/payment parsing,
-and a Czech progressive review UI. Real Raspberry Pi validation of an actual Gmail PDF remains
-required before declaring this correction production-complete.
+anchored property consolidation, and a compact Czech review UI. The 0.4.3 PDF import is
+production-functional and remains monitored; real confirmation files and personal data remain
+outside the repository.
 
 ## Import follow-up backlog
 
@@ -22,8 +23,16 @@ production-complete.
 ## Status
 
 Phases 0–10 are complete. The architecture supports macOS development and
-Raspberry Pi 4 aarch64 Home Assistant production. Prebuilt add-on distribution
-is the next deployment milestone.
+Raspberry Pi 4 aarch64 Home Assistant production. Phase 11 is planned: Phase
+11A is next, and Phases 11B–11D are not started.
+
+| Scope | Status |
+| --- | --- |
+| Phases 0–10 | COMPLETE |
+| PDF import 0.4.3 | PRODUCTION-FUNCTIONAL, MONITORED |
+| Phase 11 | PLANNED |
+| Phase 11A | NEXT |
+| Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
 
@@ -200,6 +209,108 @@ BookingTracker diagnostic through Home Assistant's Telegram Broadcast
 integration. Home Assistant owns the bot token and chat configuration;
 BookingTracker stores neither. The existing exact-match/comparable gate, band
 deduplication, CSRF, and persistent browser lifecycle remained unchanged.
+
+## Phase 11 — Czech frontend and reservation dashboard (planned)
+
+Goal: deliver a fully Czech, logically navigable, compact interface inspired
+by TripWatch's information density without copying its brand or source code.
+BookingTracker remains a local, single-user Home Assistant application. Phases
+0–10 remain complete, the production PDF import from 0.4.3 remains functional
+and monitored, and no Phase 11 item is implemented yet.
+
+### Phase 11A — navigation, Czech language, and typography (next; planned 0.5.0)
+
+1. [ ] Make `Rezervace` the main page and provide global navigation for
+   `Rezervace`, `Přidat rezervaci`, `Upozornění`, `Nastavení`, and
+   `Prohlížeč`, with a visible active item.
+2. [ ] Add logical `← Zpět` navigation to detail, import, review, settings, and
+   error pages; keep every link and redirect request-aware under any Ingress or
+   configured base path.
+3. [ ] Redirect a successfully saved reservation to its detail or the
+   reservation overview.
+4. [ ] Translate all user-facing labels, buttons, validation, dates, states,
+   and empty values into Czech. Map internal statuses such as `ready`,
+   `running`, `timeout`, `parser_error`, and `Not safely comparable` in the
+   presentation layer; render an unmapped state as `Neznámý stav` while
+   retaining its raw value only in sanitized diagnostics/logs.
+5. [ ] Move browser and scheduler technical data out of the primary overview
+   into diagnostics/settings.
+6. [ ] Introduce shared compact design tokens: body 14–15 px, desktop H1 no
+   larger than 28 px, card titles 17–18 px, metadata 12–13 px, compact spacing
+   and controls, accessible focus states, keyboard operation, and mobile layout.
+
+### Phase 11B — reservation overview (not started; planned 0.5.1)
+
+1. [ ] Group reservations by Czech month and year of arrival.
+2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
+   three to four cards on a wide HA panel and one card on mobile.
+3. [ ] Make each whole card keyboard-accessible and clickable to its detail.
+   Show a property thumbnail/placeholder, property name, stay and nights,
+   concise cancellation, room, breakfast, booked price, last comparable price,
+   amount/percentage delta, and concise Czech last-check state.
+4. [ ] Render cheaper as a green down arrow, more expensive as a red up arrow,
+   unchanged as neutral, and waiting/error/non-comparable as grey without a
+   false price change. A price is comparable only after an accepted exact or
+   explicitly labelled better match.
+5. [ ] Replace technical ISO timestamps with localized Czech dates and relative
+   time. Provide `Přidat první rezervaci` in the empty state and the top actions
+   `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
+
+### Phase 11C — property images (not started; planned 0.5.2)
+
+1. [ ] Implement manual upload first. Validate declared MIME type, decoded
+   content, dimensions, and maximum size; reject path traversal and unsafe
+   names; generate an optimized thumbnail.
+2. [ ] Store images only below `/data` through a dedicated adapter and persist
+   only a safe relative reference. Never include images in the Docker image,
+   logs, or fixtures.
+3. [ ] Use one local placeholder for missing/failed images and explicitly
+   define whether reservation deletion also removes its image.
+4. [ ] Only after manual upload is complete, consider an automatic image from
+   the concrete reservation page in the existing authorized browser session.
+   Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
+   URLs, and ensure image failure cannot affect a price check.
+
+### Phase 11D — reservation detail and price history (not started; planned 0.5.3)
+
+1. [ ] Show the property image, core reservation facts, last-check state,
+   booked and current comparable price, amount/percentage delta, price history,
+   concise cancellation, and payment conditions.
+2. [ ] Provide `Zkontrolovat cenu`, `Upravit`, `Otevřít na Booking.com`,
+   `Deaktivovat`, and `Zpět na rezervace` actions.
+3. [ ] Render a simple local chart without an external CDN or cloud frontend.
+   Keep technical diagnostics closed in a separate detail and apply the same
+   exact-match/comparability rules to every displayed price.
+
+### Phase 11 acceptance criteria
+
+- Every ordinary page reaches the reservation overview in one click; no main
+  page is a navigation dead end.
+- The ordinary UI contains no untranslated English text or raw internal
+  status, and typography is not oversized.
+- The overview is usable on desktop and mobile, and every generated link works
+  below an arbitrary Home Assistant Ingress prefix.
+- Cards never describe a non-comparable price as an increase or decrease, and
+  a missing image never breaks a card.
+- CSRF protection, browser lifecycle, scheduler, Telegram/Home Assistant
+  notification behavior, and all privacy and exact-reservation invariants are
+  preserved.
+
+### Phase 11 test strategy
+
+- Route and navigation tests under a dynamic base path, including active-item
+  state, one-click return paths, and redirects after create/edit.
+- Presentation tests for Czech text, every known status mapping, the safe
+  unknown-state fallback, and regressions preventing current English labels in
+  primary templates.
+- Reservation-list view-model tests for comparability, amount/percentage delta,
+  and direction; a non-comparable result must never have a price arrow.
+- Responsive CSS tests for desktop/mobile grid, compact typography,
+  accessibility states, and horizontal-overflow safety.
+- Security tests for image MIME/content disagreement, dimensions, size, names,
+  traversal, storage location, thumbnails, placeholder, and deletion policy.
+- Visual production verification on Raspberry Pi 4 through Home Assistant
+  Ingress after each releasable part.
 
 ## Deployment backlog
 

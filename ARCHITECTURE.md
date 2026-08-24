@@ -374,6 +374,53 @@ safe state such as browser status, active reservation count, last successful
 or failed check, best saving, and manual-action required. Core code remains
 usable without Home Assistant.
 
+## Phase 11 planned presentation architecture
+
+Phase 11 keeps the existing server-rendered, local, single-user architecture.
+It may use TripWatch's information density as visual inspiration, but must not
+copy its brand or source code. No cloud frontend, external analytics, or direct
+frontend access to the browser, database, or Booking DOM is introduced.
+
+The presentation layer maps domain enums and internal statuses to Czech user
+text. Domain enums remain stable and are not renamed for UI purposes. Every
+known value has an explicit presentation mapping; an unknown value renders as
+`Neznámý stav`, while the original value remains available only to sanitized
+diagnostics or logs. Main pages must not expose raw values such as `ready`,
+`running`, `timeout`, `parser_error`, or `Not safely comparable`.
+
+One central route/helper layer remains responsible for every navigation URL,
+form action, redirect, and static asset URL. It derives the request-specific
+Home Assistant Ingress/base-path prefix exactly once. Navigation, active-page
+state, back links, post-save redirects, image routes, and card/detail links
+must use this layer rather than root-relative paths.
+
+A reservation-list view-model prepares all card data: localized dates and
+relative times, Czech status labels, display prices, comparability, delta
+amount, percentage, and direction. Jinja templates only render that result;
+they must not calculate price differences or decide whether an offer is
+comparable. A price and green/red direction are available only after the
+existing matcher has accepted an exact, equivalent, or explicitly labelled
+better offer and the pricing service has accepted its comparison basis.
+Waiting, failure, and non-comparable results remain neutral grey states with no
+false price arrow.
+
+Property image persistence is a separate adapter rooted below `/data`. It
+validates MIME type and actual content, dimensions, maximum size, and safe
+names; produces an optimized local thumbnail; and returns only a safe relative
+reference for database storage. Images are never stored in the image layer,
+logs, fixtures, cookies, tokens, or signed URLs. Missing and failed images use
+one local placeholder. Reservation deletion must define explicit image cleanup
+semantics. A future Booking-derived thumbnail may use only the concrete
+reservation page in the existing authorized browser session, be locally
+cached without hotlinking, and remain independent from price checking.
+
+Shared CSS design tokens provide compact, accessible typography and spacing:
+body text 14–15 px, desktop H1 at most 28 px, card titles 17–18 px, and metadata
+12–13 px. Responsive cards use a local CSS grid and preserve focus states,
+keyboard operation, mobile layout, and horizontal-overflow safety. No frontend
+build step is required unless a separately approved local chart solution
+demonstrably needs one; the planned price-history graph uses no external CDN.
+
 Phase 10 notification design: the global minimum price drop is 5%, with an
 optional Decimal per-reservation override (greater than 0 and no more than
 100). Only an accepted exact/equivalent or explicitly-better match with a
