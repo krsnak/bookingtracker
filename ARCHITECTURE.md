@@ -133,6 +133,15 @@ BookingTracker/
 
 ## Core domain
 
+Schema migration 5 extends the append-only `price_checks` history in place with
+structured diagnostics (`started_at`, `finished_at`, `duration_ms`, stable
+`reason_code`, sanitized detail, failure count, and next attempt). Keeping the
+diagnostics on the existing immutable attempt row preserves its foreign-key link
+to the reservation, rate snapshots, and alerts. The runner finalizes those fields
+and the corresponding `schedule_states` backoff in one SQLite transaction. Rows
+created before migration 5 remain readable; a missing `started_at` falls back to
+the historical `checked_at`, and new nullable fields remain unknown.
+
 `Reservation` is the reviewed, persisted fact of what was booked. It retains
 separate `booked_total_price`, `booked_payable_price`, `booked_base_price`,
 and `taxes_and_fees`; it never collapses these values into a single guessed

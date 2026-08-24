@@ -44,8 +44,11 @@ class SchedulePolicy:
                 self.settings.interval * (2 ** min(failures, 5)),
                 self.settings.max_infrastructure_backoff,
             )
-        else:
+        elif status is PriceCheckStatus.SUCCESS:
             failures = 0
+            delay = self.settings.interval
+        else:
+            failures += 1
             delay = self.settings.interval
         jitter_limit = min(
             int(self.settings.jitter_max.total_seconds()), int(delay.total_seconds() / 10)

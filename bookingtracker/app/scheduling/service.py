@@ -10,7 +10,8 @@ from uuid import UUID
 from app.alerts.service import AlertService
 from app.db.repository import ReservationRepository, ScheduleStateRepository
 from app.pricing.check_service import PriceCheckService
-from app.pricing.models import PriceCheckRecord
+from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
+from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
 from app.scheduling.models import CheckTrigger, ScheduleState
 from app.scheduling.policy import SchedulePolicy
 
@@ -53,12 +54,59 @@ class CheckRunner:
                 and reservation.check_in <= now.date()
             ):
                 return None
-            record = self.checks.check(reservation, run_id=f"{trigger}:{reservation.id}")
+            try:
+                record = self.checks.check(reservation, run_id=f"{trigger}:{reservation.id}")
+            except Exception as error:
+                started_at = now
+                finished_at = self.clock()
+                safe_detail = sanitize_error_detail(error, fallback="unexpected check failure")
+                record = self.checks.history.create(
+                    PriceCheckRecord(
+                        reservation_id=reservation.id,
+                        run_id=f"{trigger}:{reservation.id}",
+                        checked_at=started_at,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=max(
+                            0, int((finished_at - started_at).total_seconds() * 1000)
+                        ),
+                        status=PriceCheckStatus.BROWSER_ERROR,
+                        reason_code=CheckReasonCode.UNEXPECTED_ERROR,
+                        safe_error_detail=safe_detail,
+                        error=safe_detail,
+                    ),
+                    [],
+                )
             state = self.schedules.get(reservation.id) or ScheduleState(
                 reservation_id=reservation.id, next_check_at=now, updated_at=now
             )
             updated = self.policy.next_state(state, record.status, now)
-            self.schedules.save(updated)
+            finished_at = record.finished_at or self.clock()
+            reason = record.reason_code or reason_code_for(record.status, record.error)
+            safe_detail = sanitize_error_detail(record.safe_error_detail or record.error)
+            record = record.model_copy(
+                update={
+                    "started_at": record.started_at or record.checked_at,
+                    "finished_at": finished_at,
+                    "duration_ms": record.duration_ms
+                    if record.duration_ms is not None
+                    else max(
+                        0,
+                        int(
+                            (
+                                finished_at - (record.started_at or record.checked_at)
+                            ).total_seconds()
+                            * 1000
+                        ),
+                    ),
+                    "reason_code": reason,
+                    "safe_error_detail": safe_detail,
+                    "error": safe_detail,
+                    "consecutive_failure_count": updated.consecutive_failures,
+                    "next_check_at": updated.next_check_at,
+                }
+            )
+            self.checks.history.complete_with_schedule(record, updated)
             self.alerts.process(
                 record, reservation, consecutive_failures=updated.consecutive_failures
             )

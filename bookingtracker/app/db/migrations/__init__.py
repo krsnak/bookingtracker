@@ -140,4 +140,11 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE reservations ADD COLUMN property_aliases_json TEXT NOT NULL DEFAULT '[]';
         """,
     ),
+    (5, """ALTER TABLE price_checks ADD COLUMN started_at TEXT;
+ALTER TABLE price_checks ADD COLUMN finished_at TEXT;
+ALTER TABLE price_checks ADD COLUMN duration_ms INTEGER;
+ALTER TABLE price_checks ADD COLUMN reason_code TEXT;
+ALTER TABLE price_checks ADD COLUMN safe_error_detail TEXT;
+ALTER TABLE price_checks ADD COLUMN consecutive_failure_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE price_checks ADD COLUMN next_check_at TEXT;"""),
 ]

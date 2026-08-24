@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Protocol
 
 from app.booking.models import ParseStatus
@@ -11,7 +12,8 @@ from app.browser.models import NavigationStatus
 from app.db.repository import PriceCheckRepository
 from app.matching.matcher import ExactReservationMatcher
 from app.matching.models import MatchClassification
-from app.pricing.models import PriceCheckRecord, PriceCheckStatus
+from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
+from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
 from app.pricing.service import ComparablePriceService
 from app.reservations.models import Reservation
 
@@ -40,22 +42,43 @@ class PriceCheckService:
         self.history = history
 
     def check(self, reservation: Reservation, *, run_id: str | None = None) -> PriceCheckRecord:
+        started_at = datetime.now(UTC)
         if not reservation.booking_url:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.NAVIGATION_ERROR,
                     error="reservation has no Booking URL",
                 ),
                 [],
             )
-        navigation = self.browser.navigate(reservation.booking_url)
+        try:
+            navigation = self.browser.navigate(reservation.booking_url)
+        except Exception as error:
+            return self._persist(
+                PriceCheckRecord(
+                    reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
+                    run_id=run_id or "explicit-check",
+                    status=PriceCheckStatus.BROWSER_ERROR,
+                    reason_code=CheckReasonCode.UNEXPECTED_ERROR,
+                    safe_error_detail=sanitize_error_detail(
+                        error, fallback="unexpected browser failure"
+                    ),
+                ),
+                [],
+            )
         status = self._navigation_status(navigation.status)
         if status is not None:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
                     run_id=run_id or "explicit-check",
                     status=status,
                     error=navigation.error,
@@ -68,6 +91,8 @@ class PriceCheckService:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.BROWSER_ERROR,
                     error="no browser page after successful navigation",
@@ -83,6 +108,8 @@ class PriceCheckService:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.PARSER_ERROR,
                     error=self._safe_error(error),
@@ -93,6 +120,8 @@ class PriceCheckService:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.NO_AVAILABILITY,
                     parser_status=parsed.status,
@@ -104,6 +133,8 @@ class PriceCheckService:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.PARSER_ERROR,
                     parser_status=parsed.status,
@@ -121,6 +152,8 @@ class PriceCheckService:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
                     run_id=run_id or "explicit-check",
                     status=PriceCheckStatus.AMBIGUOUS if ambiguous else PriceCheckStatus.NO_MATCH,
                     parser_status=parsed.status,
@@ -135,6 +168,8 @@ class PriceCheckService:
         return self._persist(
             PriceCheckRecord(
                 reservation_id=reservation.id,
+                checked_at=started_at,
+                started_at=started_at,
                 run_id=run_id or "explicit-check",
                 status=PriceCheckStatus.SUCCESS,
                 parser_status=parsed.status,
@@ -149,7 +184,22 @@ class PriceCheckService:
         )
 
     def _persist(self, record: PriceCheckRecord, offers: list) -> PriceCheckRecord:  # noqa: ANN001
-        return self.history.create(record, offers)
+        finished_at = datetime.now(UTC)
+        reason = record.reason_code or reason_code_for(record.status, record.error)
+        safe_detail = record.safe_error_detail or sanitize_error_detail(record.error)
+        completed = record.model_copy(
+            update={
+                "finished_at": finished_at,
+                "duration_ms": max(
+                    0,
+                    int((finished_at - (record.started_at or record.checked_at)).total_seconds() * 1000),
+                ),
+                "reason_code": reason,
+                "safe_error_detail": safe_detail,
+                "error": safe_detail,
+            }
+        )
+        return self.history.create(completed, offers)
 
     @staticmethod
     def _navigation_status(status: NavigationStatus) -> PriceCheckStatus | None:
@@ -165,4 +215,4 @@ class PriceCheckService:
 
     @staticmethod
     def _safe_error(error: Exception) -> str:
-        return str(error).split("\n", maxsplit=1)[0]
+        return sanitize_error_detail(error, fallback="parser failure") or "parser failure"

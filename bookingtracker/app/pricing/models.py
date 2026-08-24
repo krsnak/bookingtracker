@@ -37,6 +37,18 @@ class PriceCheckStatus(StrEnum):
     TIMEOUT = "timeout"
 
 
+class CheckReasonCode(StrEnum):
+    TIMEOUT = "timeout"
+    NAVIGATION_ERROR = "navigation_error"
+    NETWORK_ERROR = "network_error"
+    BROWSER_ERROR = "browser_error"
+    LOGIN_REQUIRED = "login_required"
+    CAPTCHA_REQUIRED = "captcha_required"
+    PARSER_ERROR = "parser_error"
+    NO_COMPARABLE_OFFER = "no_comparable_offer"
+    UNEXPECTED_ERROR = "unexpected_error"
+
+
 class PriceComparison(BaseModel):
     """A result only when booked and current amounts have the same tax basis."""
 
@@ -64,6 +76,9 @@ class PriceCheckRecord(BaseModel):
     reservation_id: UUID
     run_id: str = Field(default_factory=lambda: str(uuid4()))
     checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
     status: PriceCheckStatus
     parser_status: ParseStatus | None = None
     matched: bool = False
@@ -72,6 +87,10 @@ class PriceCheckRecord(BaseModel):
     comparison: PriceComparison | None = None
     match_result: MatchResult | None = None
     error: str | None = None
+    reason_code: CheckReasonCode | None = None
+    safe_error_detail: str | None = None
+    consecutive_failure_count: int = Field(default=0, ge=0)
+    next_check_at: datetime | None = None
     warnings: list[str] = Field(default_factory=list)
 
 

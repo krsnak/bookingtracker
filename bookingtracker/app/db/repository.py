@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from app.alerts.models import Alert, DeliveryStatus
 from app.booking.models import RateOffer
 from app.db.connection import SQLiteDatabase
+from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
 from app.pricing.models import PersistedPriceCheck, PriceCheckRecord, PriceComparison
 from app.reservations.models import Reservation
 from app.scheduling.models import ScheduleState
@@ -282,6 +283,14 @@ class PriceCheckRepository:
 
     def create(self, check: PriceCheckRecord, rate_offers: list[RateOffer]) -> PriceCheckRecord:
         self.database.migrate()
+        safe_detail = sanitize_error_detail(check.safe_error_detail or check.error)
+        check = check.model_copy(
+            update={
+                "reason_code": check.reason_code or reason_code_for(check.status, check.error),
+                "safe_error_detail": safe_detail,
+                "error": safe_detail,
+            }
+        )
         comparison = check.comparison
         with self.database.transaction() as connection:
             connection.execute(
@@ -290,8 +299,9 @@ class PriceCheckRepository:
                     match_classification, match_score, comparable, price_basis,
                     booked_comparable_price, current_comparable_price, currency, delta_amount,
                     delta_percent, direction, comparison_reasons_json, comparison_warnings_json,
-                    match_result_json, error, warnings_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    match_result_json, error, warnings_json, started_at, finished_at, duration_ms,
+                    reason_code, safe_error_detail, consecutive_failure_count, next_check_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     str(check.id),
                     str(check.reservation_id),
@@ -317,6 +327,13 @@ class PriceCheckRepository:
                     else None,
                     check.error,
                     _json(check.warnings),
+                    _utc_iso(check.started_at or check.checked_at),
+                    _utc_iso(check.finished_at) if check.finished_at else None,
+                    check.duration_ms,
+                    check.reason_code.value if check.reason_code else None,
+                    check.safe_error_detail,
+                    check.consecutive_failure_count,
+                    _utc_iso(check.next_check_at) if check.next_check_at else None,
                 ),
             )
             for ordinal, offer in enumerate(rate_offers):
@@ -330,6 +347,59 @@ class PriceCheckRepository:
                         _utc_iso(check.checked_at),
                     ),
                 )
+        return check
+
+    def complete_with_schedule(
+        self, check: PriceCheckRecord, state: ScheduleState
+    ) -> PriceCheckRecord:
+        """Atomically finalize one history row and its persisted backoff state."""
+        self.database.migrate()
+        safe_detail = sanitize_error_detail(check.safe_error_detail or check.error)
+        check = check.model_copy(
+            update={
+                "reason_code": check.reason_code or reason_code_for(check.status, check.error),
+                "safe_error_detail": safe_detail,
+                "error": safe_detail,
+            }
+        )
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                """UPDATE price_checks SET started_at=?, finished_at=?, duration_ms=?,
+                reason_code=?, safe_error_detail=?, consecutive_failure_count=?, next_check_at=?
+                WHERE id=?""",
+                (
+                    _utc_iso(check.started_at or check.checked_at),
+                    _utc_iso(check.finished_at) if check.finished_at else None,
+                    check.duration_ms,
+                    check.reason_code.value if check.reason_code else None,
+                    safe_detail,
+                    check.consecutive_failure_count,
+                    _utc_iso(check.next_check_at) if check.next_check_at else None,
+                    str(check.id),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"price check not found: {check.id}")
+            connection.execute(
+                """INSERT INTO schedule_states (
+                    reservation_id, next_check_at, last_check_at, last_success_at,
+                    consecutive_failures, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(reservation_id) DO UPDATE SET
+                    next_check_at=excluded.next_check_at,
+                    last_check_at=excluded.last_check_at,
+                    last_success_at=excluded.last_success_at,
+                    consecutive_failures=excluded.consecutive_failures,
+                    updated_at=excluded.updated_at""",
+                (
+                    str(state.reservation_id),
+                    _utc_iso(state.next_check_at),
+                    _utc_iso(state.last_check_at) if state.last_check_at else None,
+                    _utc_iso(state.last_success_at) if state.last_success_at else None,
+                    state.consecutive_failures,
+                    _utc_iso(state.updated_at),
+                ),
+            )
         return check
 
     def list_for_reservation(self, reservation_id: UUID) -> list[PersistedPriceCheck]:
@@ -403,6 +473,15 @@ class PriceCheckRepository:
             id=UUID(data["id"]),
             reservation_id=UUID(data["reservation_id"]),
             checked_at=datetime.fromisoformat(data["checked_at"]),
+            started_at=datetime.fromisoformat(data["started_at"])
+            if data.get("started_at")
+            else datetime.fromisoformat(data["checked_at"]),
+            finished_at=datetime.fromisoformat(data["finished_at"])
+            if data.get("finished_at")
+            else None,
+            next_check_at=datetime.fromisoformat(data["next_check_at"])
+            if data.get("next_check_at")
+            else None,
             matched=bool(data["matched"]),
             comparison=comparison,
             match_result=json.loads(match_json) if match_json else None,
