@@ -1,0 +1,15 @@
+{
+  "property_name": "Example Hotel",
+  "hotel_url": "https://www.booking.com/hotel/xx/example.html",
+  "check_in": "2027-01-10",
+  "check_out": "2027-01-12",
+  "adults": 2,
+  "children": 0,
+  "children_ages": [],
+  "rooms": 1,
+  "room_type": "Example Double Room",
+  "meal_plan": null,
+  "breakfast": true,
+  "cancellation_required": true,
+  "currency": "EUR"
+}

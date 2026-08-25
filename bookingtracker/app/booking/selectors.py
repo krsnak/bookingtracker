@@ -25,6 +25,16 @@ class BookingSelectors:
     LEGACY_OCCUPANCY_CLASS = "hprt-roomtype-occupancy-text"
     LEGACY_TAXES_CLASS = "prd-taxes-and-fees-under-price"
 
+    # Developer capture roots only. They define a narrow DOM boundary and are
+    # not interpreted as offers; offer parsing continues to use the selectors
+    # above through BookingRateParser.
+    DEBUG_CAPTURE_ROOTS = (
+        AVAILABILITY,
+        "#hprt-table",
+        "table.hprt-table",
+        '[data-testid*="availability"]',
+    )
+
     ROOM_TEST_ID = "room-row"
     RATE_TEST_ID = "rate-option"
     NO_AVAILABILITY_TEST_ID = "no-availability"

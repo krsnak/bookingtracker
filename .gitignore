@@ -21,6 +21,10 @@ logs/
 *Login Data*
 *Secure Preferences*
 bookingtracker.egg-info/
+bookingtracker/scripts/debug_live_booking.local*.json
+bookingtracker/.debug-live/
+debug-live/
+*.booking-capture.html
 
 # OS/editor files
 .DS_Store
