@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.booking.capture import audit_rate_fixture_html, sanitize_rate_fixture_html
 from app.booking.live_debug import (
@@ -17,6 +17,7 @@ from app.booking.live_debug import (
     capture_availability_html,
     elapsed_ms,
     load_live_config,
+    run_production_check,
 )
 from app.booking.selectors import BookingSelectors
 from app.browser.models import BrowserState, NavigationStatus
@@ -115,6 +116,7 @@ def _page_summary(page: object, timings: dict[str, int]) -> dict[str, object]:
         "legacy_rate": page.locator(BookingSelectors.LEGACY_RATE).count(),  # type: ignore[attr-defined]
     }
     return {
+        "final_url": _safe_final_url(final_url),
         "final_hostname": urlsplit(final_url).hostname,
         "page_type": page_type,
         "authentication": authentication.value,
@@ -123,23 +125,90 @@ def _page_summary(page: object, timings: dict[str, int]) -> dict[str, object]:
     }
 
 
-def _run_analysis(args: argparse.Namespace, *, check: bool) -> int:
+def _safe_final_url(value: str) -> str:
+    parsed = urlsplit(value)
+    allowed = {
+        "age",
+        "checkin",
+        "checkout",
+        "group_adults",
+        "group_children",
+        "no_rooms",
+        "selected_currency",
+    }
+    query = [(key, item) for key, item in parse_qsl(parsed.query) if key in allowed]
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), ""))
+
+
+def _run_analysis(args: argparse.Namespace) -> int:
     config = load_live_config(args.config)
     service = BookingBrowserService(_settings(args.profile_dir))
     try:
         page, timings = _open_page(service, config.navigation_url())
         page_summary = _page_summary(page, timings)
         html = page.content()  # type: ignore[attr-defined]
-        _, match, report = analyze_html(html, config)
+        _, _, report = analyze_html(html, config)
         report["page"] = page_summary
         report_timings = report["timings"]
         assert isinstance(report_timings, dict)
         report_timings.update(timings)
-        if check:
-            report["exact_match"] = match.accepted
-            report["match_classification"] = match.classification.value
         _json(report)
         return 0 if report["outcome"] != "parser_error" else 2
+    finally:
+        service.stop()
+
+
+class _ObservedBrowser:
+    def __init__(self, service: BookingBrowserService) -> None:
+        self.service = service
+
+    def navigate(self, url: str):  # noqa: ANN201
+        return self.service.navigate(url)
+
+    def current_page(self) -> object | None:
+        return self.service.current_page()
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    config = load_live_config(args.config)
+    service = BookingBrowserService(_settings(args.profile_dir))
+    timings: dict[str, int] = {}
+    try:
+        started = perf_counter()
+        health = service.start()
+        timings["browser_start_ms"] = elapsed_ms(started)
+        if not health.context_running:
+            raise RuntimeError("headed Chromium could not be started")
+        result = run_production_check(
+            _ObservedBrowser(service),
+            config,
+            navigation_url=config.hotel_url if args.canonical_url_only else None,
+        )
+        record = result.pop("record")
+        page = service.current_page()
+        if page is None:
+            raise RuntimeError("browser page is unavailable after CheckRunner")
+        report = {
+            "event": "booking_live_debug_production_check",
+            "property": config.property_name,
+            "page": _page_summary(page, timings),
+            "candidate_count_before_matcher": result.pop("candidate_count"),
+            "status": record.status.value,
+            "reason_code": record.reason_code.value if record.reason_code else None,
+            "diagnostic_phase": (
+                record.diagnostic_phase.value if record.diagnostic_phase else None
+            ),
+            "match_classification": (
+                record.match_classification.value if record.match_classification else None
+            ),
+            "duration_ms": record.duration_ms,
+            **result,
+            "timings": timings,
+        }
+        if report["volatile_next_check_at"] is not None:
+            report["volatile_next_check_at"] = report["volatile_next_check_at"].isoformat()
+        _json(report)
+        return 0 if record.status.value == "success" else 2
     finally:
         service.stop()
 
@@ -231,6 +300,8 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--config", type=Path, required=True)
         if name == "capture":
             command.add_argument("--output", type=Path)
+        if name == "check":
+            command.add_argument("--canonical-url-only", action="store_true")
     replay = commands.add_parser("replay")
     replay.add_argument("--config", type=Path, required=True)
     replay.add_argument("--capture", type=Path, required=True)
@@ -243,9 +314,9 @@ def main() -> int:
         if args.command == "open":
             return _open(args)
         if args.command == "inspect":
-            return _run_analysis(args, check=False)
+            return _run_analysis(args)
         if args.command == "check":
-            return _run_analysis(args, check=True)
+            return _run_check(args)
         if args.command == "capture":
             return _capture(args)
         return _replay(args)

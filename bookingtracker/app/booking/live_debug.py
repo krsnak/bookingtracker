@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from time import perf_counter
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -10,11 +10,18 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.booking.models import ParseResult, ParseStatus, RateOffer
+from app.booking.parser import BookingRateParser
 from app.booking.selectors import BookingSelectors
 from app.matching.matcher import ExactReservationMatcher
 from app.matching.models import MatchResult
-from app.pricing.models import CheckDiagnosticPhase, CheckReasonCode
+from app.pricing.check_service import PriceCheckService
+from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
+from app.pricing.models import CheckDiagnosticPhase, CheckReasonCode, PriceCheckRecord
+from app.pricing.service import ComparablePriceService
 from app.reservations.models import Reservation
+from app.scheduling.models import CheckTrigger, ScheduleState
+from app.scheduling.policy import SchedulePolicy
+from app.scheduling.service import CheckRunner
 
 
 class LiveBookingConfig(BaseModel):
@@ -159,8 +166,6 @@ def analyze_html(
     *,
     source_url: str = "https://www.booking.com/hotel/debug/local.html",
 ) -> tuple[ParseResult, MatchResult, dict[str, object]]:
-    from app.booking.parser import BookingRateParser
-
     timings: dict[str, int] = {}
     started = perf_counter()
     parsed = BookingRateParser().parse_html(html, source_url=source_url)
@@ -200,3 +205,109 @@ def analyze_html(
         "timings": timings,
     }
     return parsed, match, report
+
+
+class VolatileCheckHistory:
+    """Dry-run sink satisfying production services without opening SQLite."""
+
+    def __init__(self) -> None:
+        self.record: PriceCheckRecord | None = None
+        self.offers: list[RateOffer] = []
+        self.schedule: ScheduleState | None = None
+
+    def create(self, record: PriceCheckRecord, offers: list[RateOffer]) -> PriceCheckRecord:
+        safe_detail = sanitize_error_detail(record.safe_error_detail or record.error)
+        self.record = record.model_copy(
+            update={
+                "reason_code": record.reason_code or reason_code_for(record.status, record.error),
+                "safe_error_detail": safe_detail,
+                "error": safe_detail,
+            }
+        )
+        self.offers = list(offers)
+        return self.record
+
+    def complete_with_schedule(
+        self, record: PriceCheckRecord, state: ScheduleState
+    ) -> PriceCheckRecord:
+        self.record = record
+        self.schedule = state
+        return record
+
+
+class _VolatileReservations:
+    def __init__(self, reservation: Reservation) -> None:
+        self.reservation = reservation
+
+    def get(self, reservation_id):  # noqa: ANN001, ANN201
+        return self.reservation if reservation_id == self.reservation.id else None
+
+
+class _VolatileSchedules:
+    def get(self, reservation_id):  # noqa: ANN001, ANN201, ARG002
+        return None
+
+
+class NullAlertService:
+    """Explicit proof that dry-run CheckRunner cannot persist or deliver alerts."""
+
+    def __init__(self) -> None:
+        self.process_calls = 0
+
+    def process(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        self.process_calls += 1
+
+
+def run_production_check(
+    browser: object,
+    config: LiveBookingConfig,
+    *,
+    navigation_url: str | None = None,
+) -> dict[str, object]:
+    """Run the real CheckRunner pipeline with volatile persistence and no alert side effects."""
+    reservation = config.reservation().model_copy(
+        update={"active": True, "booking_url": navigation_url or config.navigation_url()}
+    )
+    history = VolatileCheckHistory()
+    alerts = NullAlertService()
+    runner = CheckRunner(
+        _VolatileReservations(reservation),  # type: ignore[arg-type]
+        PriceCheckService(
+            browser,  # type: ignore[arg-type]
+            BookingRateParser(),
+            ExactReservationMatcher(),
+            ComparablePriceService(),
+            history,  # type: ignore[arg-type]
+        ),
+        _VolatileSchedules(),  # type: ignore[arg-type]
+        SchedulePolicy(),
+        alerts,  # type: ignore[arg-type]
+        clock=lambda: datetime.now(UTC),
+    )
+    record = runner.run_check(reservation.id, CheckTrigger.MANUAL)
+    if record is None:
+        raise RuntimeError("production CheckRunner returned no record")
+    comparison = record.comparison
+    return {
+        "record": record,
+        "candidate_count": len(history.offers),
+        "alerts_delivered": 0,
+        "alert_process_calls": alerts.process_calls,
+        "production_database_opened": False,
+        "scheduler_repository_written": False,
+        "volatile_next_check_at": history.schedule.next_check_at if history.schedule else None,
+        "comparison": {
+            "comparable": comparison.comparable,
+            "direction": comparison.direction.value,
+            "booked_price": str(comparison.booked_price)
+            if comparison.booked_price is not None
+            else None,
+            "current_price": str(comparison.current_price)
+            if comparison.current_price is not None
+            else None,
+            "currency": comparison.currency,
+            "warnings": comparison.warnings,
+        }
+        if comparison
+        else None,
+    }
