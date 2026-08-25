@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 
 from app.booking.capture import audit_rate_fixture_html, sanitize_rate_fixture_html
-from app.booking.live_debug import LiveBookingConfig, analyze_html
+from app.booking.live_debug import LiveBookingConfig, analyze_html, capture_availability_html
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
@@ -56,7 +56,8 @@ def test_capture_sanitizer_preserves_parser_dom_and_removes_sensitive_content() 
     unsafe = (
         '<script>token="secret"</script><style>.x{}</style>'
         '<form action="https://booking.com/account"><input value="Jane Doe"></form>'
-        '<a href="mailto:jane@example.com" data-session-token="abc">jane@example.com</a>'
+        '<a class="offer-1234567890" href="mailto:jane@example.com" '
+        'data-session-token="abc">jane@example.com</a>'
         '<p>PIN: 1234 confirmation number: 1234567890 +420 777 123 456</p>'
         + original
     )
@@ -105,3 +106,38 @@ def test_unknown_dom_is_parser_error_in_offer_collection() -> None:
     assert report["outcome"] == "parser_error"
     assert report["reason_code"] == "parser_error"
     assert report["diagnostic_phase"] == "offer_collection"
+
+
+class _FakeLocator:
+    def __init__(self, values: list[str]) -> None:
+        self.values = values
+
+    def count(self) -> int:
+        return len(self.values)
+
+    @property
+    def first(self) -> _FakeLocator:
+        return self
+
+    def evaluate(self, expression: str) -> str:
+        assert "outerHTML" in expression
+        return self.values[0]
+
+    def evaluate_all(self, expression: str) -> list[str]:
+        assert "outerHTML" in expression
+        return self.values
+
+
+class _LegacyOnlyPage:
+    def locator(self, selector: str) -> _FakeLocator:
+        if selector == "tr.js-rt-block-row":
+            return _FakeLocator(["<tr class='js-rt-block-row'>one</tr>", "<tr>two</tr>"])
+        return _FakeLocator([])
+
+
+def test_capture_wraps_all_legacy_rows_when_shared_table_root_is_absent() -> None:
+    captured = capture_availability_html(_LegacyOnlyPage())
+
+    assert captured == (
+        "<table><tr class='js-rt-block-row'>one</tr><tr>two</tr></table>"
+    )

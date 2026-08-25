@@ -12,7 +12,12 @@ from time import perf_counter
 from urllib.parse import urlsplit
 
 from app.booking.capture import audit_rate_fixture_html, sanitize_rate_fixture_html
-from app.booking.live_debug import analyze_html, elapsed_ms, load_live_config
+from app.booking.live_debug import (
+    analyze_html,
+    capture_availability_html,
+    elapsed_ms,
+    load_live_config,
+)
 from app.booking.selectors import BookingSelectors
 from app.browser.models import BrowserState, NavigationStatus
 from app.browser.service import BookingBrowserService
@@ -139,21 +144,13 @@ def _run_analysis(args: argparse.Namespace, *, check: bool) -> int:
         service.stop()
 
 
-def _capture_root(page: object) -> str:
-    for selector in BookingSelectors.DEBUG_CAPTURE_ROOTS:
-        locator = page.locator(selector)  # type: ignore[attr-defined]
-        if locator.count():
-            return str(locator.first.evaluate("element => element.outerHTML"))
-    raise RuntimeError("no narrow availability capture root was found")
-
-
 def _capture(args: argparse.Namespace) -> int:
     config = load_live_config(args.config)
     service = BookingBrowserService(_settings(args.profile_dir))
     try:
         page, timings = _open_page(service, config.navigation_url())
         page_summary = _page_summary(page, timings)
-        raw_subtree = _capture_root(page)
+        raw_subtree = capture_availability_html(page)
         sanitized = sanitize_rate_fixture_html(raw_subtree)
         findings = audit_rate_fixture_html(sanitized)
         if findings:

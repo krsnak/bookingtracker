@@ -66,7 +66,7 @@ class _FixtureSanitizer(HTMLParser):
         if tag in _DROP_ELEMENTS or tag in _UNWRAP_TAGS:
             return
         safe_attrs = [
-            f' {name}="{escape(value or "", quote=True)}"'
+            f' {name}="{escape(_sanitize_text(value or ""), quote=True)}"'
             for name, value in attrs
             if name.casefold() in _ALLOWED_ATTRIBUTES
         ]

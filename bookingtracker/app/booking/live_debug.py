@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.booking.models import ParseResult, ParseStatus, RateOffer
+from app.booking.selectors import BookingSelectors
 from app.matching.matcher import ExactReservationMatcher
 from app.matching.models import MatchResult
 from app.pricing.models import CheckDiagnosticPhase, CheckReasonCode
@@ -99,6 +100,19 @@ def load_live_config(path: Path) -> LiveBookingConfig:
 
 def elapsed_ms(started: float) -> int:
     return max(0, round((perf_counter() - started) * 1000))
+
+
+def capture_availability_html(page: object) -> str:
+    """Capture one narrow known root, or all known legacy rows without interpreting them."""
+    for selector in BookingSelectors.DEBUG_CAPTURE_ROOTS:
+        locator = page.locator(selector)  # type: ignore[attr-defined]
+        if locator.count():
+            return str(locator.first.evaluate("element => element.outerHTML"))
+    legacy_rates = page.locator(BookingSelectors.LEGACY_RATE)  # type: ignore[attr-defined]
+    if legacy_rates.count():
+        rows = legacy_rates.evaluate_all("elements => elements.map(element => element.outerHTML)")
+        return "<table>" + "".join(str(row) for row in rows) + "</table>"
+    raise RuntimeError("no narrow availability capture root was found")
 
 
 def missing_offer_fields(offer: RateOffer, config: LiveBookingConfig) -> list[str]:
