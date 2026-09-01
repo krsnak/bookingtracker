@@ -416,16 +416,61 @@ def parse_dates(lines: list[str]) -> tuple[date | None, date | None]:
 
 
 def parse_occupancy(lines: Iterable[str]) -> tuple[int | None, int | None, list[int] | None]:
-    joined = "\n".join(lines)
-    adults_match = re.search(r"\b(\d+)\s+(?:adults?|dospěl[ií])\b", joined, re.I)
-    children_match = re.search(r"\b(\d+)\s+(?:child(?:ren)?|dět[ií])\b", joined, re.I)
-    ages_match = re.search(r"(?:children(?:'s)? ages?|ages?)\s*[:\-]?\s*([\d, /]+)", joined, re.I)
-    ages = [int(item) for item in re.findall(r"\d+", ages_match.group(1))] if ages_match else None
-    return (
-        int(adults_match.group(1)) if adults_match else None,
-        int(children_match.group(1)) if children_match else None,
-        ages,
+    """Parse one explicit guest block without inferring children from document silence.
+
+    An adult count is reliable only when every adult mention agrees.  Children
+    may appear on the same line or immediately adjacent confirmation lines; if
+    that recognized block has adults but no child statement, it explicitly means
+    zero children.  Conflicting counts deliberately remain unknown.
+    """
+    values = list(lines)
+    adult_pattern = re.compile(r"\b(\d+)\s+(?:adults?|dospěl[ií])\b", re.I)
+    child_pattern = re.compile(r"\b(\d+)\s+(?:child(?:ren)?|dět[ií]|dítě)\b", re.I)
+    age_pattern = re.compile(
+        r"(?:children(?:'s)?\s+ages?|child\s+ages?|věk(?:\s+(?:dětí|dítěte))?)"
+        r"\s*[:\-]?\s*([\d, /]+)",
+        re.I,
     )
+    adult_mentions = [(index, int(match.group(1))) for index, line in enumerate(values)
+                      if (match := adult_pattern.search(line))]
+    if not adult_mentions or len({count for _, count in adult_mentions}) != 1:
+        return None, None, None
+
+    adult_indexes = {index for index, _ in adult_mentions}
+    nearby_indexes = {
+        index + offset
+        for index in adult_indexes
+        for offset in (-1, 0, 1)
+        if 0 <= index + offset < len(values)
+    }
+    child_mentions = [
+        (index, int(match.group(1)))
+        for index, line in enumerate(values)
+        if (match := child_pattern.search(line))
+    ]
+    # An explicit child count outside the recognized block could refer to a
+    # different reservation/mail fragment; do not combine it with this booking.
+    if any(index not in nearby_indexes for index, _ in child_mentions):
+        return adult_mentions[0][1], None, None
+    if child_mentions and len({count for _, count in child_mentions}) != 1:
+        return adult_mentions[0][1], None, None
+
+    ages: list[int] | None = None
+    age_mentions = [
+        (index, [int(item) for item in re.findall(r"\d+", match.group(1))])
+        for index, line in enumerate(values)
+        if (match := age_pattern.search(line))
+    ]
+    if any(index not in nearby_indexes for index, _ in age_mentions):
+        return adult_mentions[0][1], None, None
+    if age_mentions:
+        flattened = [age for _, found in age_mentions for age in found]
+        ages = flattened or None
+
+    children = child_mentions[0][1] if child_mentions else 0
+    if ages is not None and children != len(ages):
+        return adult_mentions[0][1], None, None
+    return adult_mentions[0][1], children, ages
 
 
 def parse_room(lines: list[str]) -> tuple[int | None, str | None, list[RoomBreakdown] | None]:

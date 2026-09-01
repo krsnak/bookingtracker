@@ -11,6 +11,15 @@ anchor, including PDF line breaks and Unicode names. Review uses a compact, isol
 stylesheet. Synthetic PDFs are created only in memory during tests; no real confirmation or
 personal data is committed.
 
+The next unreleased corrective change distinguishes a technically failed Booking check from a
+valid completed check without a safely comparable offer. A reliably recognized guest block such
+as `2 adults` or `2 dospělí` now records zero children; an unclear or conflicting guest block
+remains unknown for review. Missing search facts stop before browser navigation as
+`incomplete_reservation` with a Czech correction message. `no_comparable_offer` is a healthy,
+price-less outcome: it resets the technical failure series, uses the normal schedule interval,
+and hides a superseded technical-failure alert only on the current detail. Exact-match rules and
+the no-false-`PRICE_DROP` guard remain unchanged.
+
 Version 0.4.1 fixes property evidence scoring for Gmail-exported PDFs and presents recognized
 reservation facts as Czech read-only summaries until the user chooses to correct them.
 
@@ -62,8 +71,8 @@ the local single-user Home Assistant interface fully Czech, compact, and
 logically navigable, taking inspiration only from TripWatch's information
 density without copying its brand or source code. Phase 11A / 0.5.0 is COMPLETE after
 production validation. The 0.5.1 diagnostic intermediate step is production-validated. The
-0.5.3 parser/navigation reliability is implementation complete and live-validated locally;
-Phases 11B–11D remain planned.
+0.5.3 parser/navigation reliability was production-validated; its Papaya corrective follow-up is
+locally verified and awaits review. Phases 11B–11D remain planned.
 
 - **11A / 0.5.0 — Navigation, Czech language, and typography:** a `Rezervace`
   home page, Czech global navigation and presentation mappings, reliable back
@@ -74,8 +83,10 @@ Phases 11B–11D remain planned.
   complete and production-validated on STORHAUGEN GARD.
 - **Reliability / 0.5.3 — Deterministic availability checks:** bounded optional locator reads,
   deterministic URL construction from stored reservation facts, availability waiting with one
-  retry, safe diagnostics, and scheduler revalidation without duplicate history. Live-validated;
-  Raspberry Pi release validation remains pending.
+  retry, safe diagnostics, and scheduler revalidation without duplicate history. Production
+  validation confirmed the expected Papaya `no_comparable_offer` after `children=0` was supplied.
+  Its existing production record was already manually corrected, so this follow-up applies only to
+  future or safe repeat imports; it does not alter Atlas Haven or Dar Dikrayat automatically.
 - **11B / 0.5.4 — Reservation overview:** month-grouped responsive cards with
   exact-match-safe comparable prices, Czech status/date presentation, and
   clear add/check-all actions.

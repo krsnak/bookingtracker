@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Treat a reliably recognized adults-only confirmation block as zero children while retaining
+  unknown children for missing, conflicting, or unrecognized guest evidence in both text and PDF
+  imports.
+- Classify missing availability-search facts as `incomplete_reservation` in
+  `reservation_validation` before browser navigation, with approved Czech edit guidance.
+- Make diagnostic redaction idempotent and keep raw/internal details out of ordinary and closed
+  technical UI presentation.
+- Treat `no_comparable_offer` and normal no-availability as technically healthy: reset failure
+  state, use the normal interval, and hide a superseded `CHECK_FAILED` only on the current detail.
+  Its history, delivery status, and manual acknowledgement are unchanged. Exact-match and
+  `PRICE_DROP` protections are unchanged.
+
 ## 0.5.3
 
 - Build every manual and scheduled Booking navigation URL deterministically from the stored

@@ -45,6 +45,8 @@ def reason_code_for(status: PriceCheckStatus, detail: str | None = None) -> Chec
         return CheckReasonCode.CAPTCHA_REQUIRED
     if status is PriceCheckStatus.PARSER_ERROR:
         return CheckReasonCode.PARSER_ERROR
+    if status is PriceCheckStatus.INCOMPLETE_RESERVATION:
+        return CheckReasonCode.INCOMPLETE_RESERVATION
     if status in {
         PriceCheckStatus.NO_MATCH,
         PriceCheckStatus.AMBIGUOUS,
@@ -66,11 +68,16 @@ def sanitize_error_detail(value: object | None, *, fallback: str | None = None) 
     if value is None:
         return fallback
     text = str(value).replace("\x00", " ")
+    # Redaction markers are deliberately stable public placeholders.  Protect
+    # them from the broad reservation-number pattern below and collapse any
+    # legacy nested form on read/write.
+    text = re.sub(r"(?:\[\s*)+reservation removed(?:\s*\])+", "[reservation removed]", text)
     if "Traceback (most recent call last)" in text:
         text = text.split("Traceback (most recent call last)", 1)[0]
     text = text.splitlines()[0] if text.splitlines() else ""
     for pattern, replacement in _REDACTIONS:
         text = pattern.sub(replacement, text)
+    text = re.sub(r"(?:\[\s*)+reservation removed(?:\s*\])+", "[reservation removed]", text)
     text = re.sub(r"\s+", " ", text).strip(" ,:;-")
     if not text:
         return fallback

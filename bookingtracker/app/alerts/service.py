@@ -23,6 +23,26 @@ from app.pricing.models import PriceCheckRecord, PriceCheckStatus
 from app.reservations.models import Reservation
 
 
+def is_technically_healthy(check: PriceCheckRecord) -> bool:
+    """A completed check that proves browser/parser health without requiring a price."""
+    return check.status in {
+        PriceCheckStatus.SUCCESS,
+        PriceCheckStatus.NO_MATCH,
+        PriceCheckStatus.AMBIGUOUS,
+        PriceCheckStatus.NO_AVAILABILITY,
+    }
+
+
+def check_failed_is_superseded(alert: Alert, checks: list[PriceCheckRecord]) -> bool:
+    """Return whether a later healthy check makes this failure non-current in the UI."""
+    if alert.type is not AlertType.CHECK_FAILED or alert.price_check_id is None:
+        return False
+    for index, check in enumerate(checks):
+        if check.id == alert.price_check_id:
+            return any(is_technically_healthy(later) for later in checks[:index])
+    return False
+
+
 class AlertService:
     def __init__(
         self,
@@ -74,7 +94,7 @@ class AlertService:
                             "percent_saving": str(self._saving_percent(check)),
                             "band": str(self._band(check, reservation)),
                         },
-                    )
+                    ),
                 )
             )
             if self._is_new_historical_low(check):
@@ -137,7 +157,8 @@ class AlertService:
                             "status": check.status.value,
                             "consecutive_failures": str(consecutive_failures),
                         },
-                    )
+                    ),
+                    allow_superseded_failure_duplicate=True,
                 )
             )
         return created
@@ -283,8 +304,16 @@ class AlertService:
             f"Další pokus: {next_attempt}."
         )
 
-    def _create(self, alert: Alert) -> list[Alert]:
-        if self.alerts.find_active_duplicate(alert.dedupe_key):
+    def _create(
+        self, alert: Alert, *, allow_superseded_failure_duplicate: bool = False
+    ) -> list[Alert]:
+        duplicate = self.alerts.find_active_duplicate(alert.dedupe_key)
+        if duplicate and not (
+            allow_superseded_failure_duplicate
+            and check_failed_is_superseded(
+                duplicate, self.checks.list_for_reservation(alert.reservation_id)
+            )
+        ):
             return []
         self.alerts.create(alert)
         try:

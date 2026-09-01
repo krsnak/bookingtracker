@@ -12,7 +12,7 @@ from threading import Event, Thread
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from app.alerts.models import AlertType
+from app.alerts.models import Alert, AlertSeverity, AlertType
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
@@ -310,7 +310,55 @@ def test_raw_english_library_detail_is_only_in_closed_technical_diagnostics(
     ordinary, technical = detail.text.split("<details", 1)
     assert "Locator.inner_text" not in ordinary
     assert "Kontrolu ceny se nepodařilo dokončit v časovém limitu." in ordinary
-    assert "Sanitizovaný detail: Locator.inner_text: Timeout 1000ms exceeded" in technical
+    assert "Locator.inner_text" not in technical
+
+
+def test_detail_hides_superseded_failure_but_alert_history_keeps_manual_ack_state(tmp_path) -> None:  # noqa: ANN001,E501
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    failed_at = datetime(2026, 8, 24, 20, tzinfo=UTC)
+    failed = app.state.history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            checked_at=failed_at,
+            status=PriceCheckStatus.TIMEOUT,
+        ),
+        [],
+    )
+    app.state.alerts.create(
+        Alert(
+            reservation_id=stored.id,
+            price_check_id=failed.id,
+            type=AlertType.CHECK_FAILED,
+            severity=AlertSeverity.WARNING,
+            title="Opakovaně se nepodařilo zkontrolovat cenu",
+            message="Historické upozornění",
+            dedupe_key=f"check-failed:{stored.id}:timeout",
+        )
+    )
+    app.state.history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            checked_at=failed_at + timedelta(minutes=1),
+            status=PriceCheckStatus.NO_MATCH,
+        ),
+        [],
+    )
+    with TestClient(app) as client:
+        detail = client.get(f"/reservations/{stored.id}")
+        alerts = client.get("/alerts")
+        historical_alert = app.state.alerts.list_for_reservation(stored.id)[0]
+        acknowledged = client.post(
+            f"/alerts/{historical_alert.id}/acknowledge",
+            data={"csrf_token": app.state.csrf},
+        )
+    assert "Historické upozornění" not in detail.text
+    assert "Historické upozornění" in alerts.text
+    assert "Nepotvrzeno" in alerts.text and "Potvrdit" in alerts.text
+    assert acknowledged.status_code == 200
+    assert app.state.alerts.get(historical_alert.id).acknowledged_at is not None  # type: ignore[union-attr]
 
 
 def test_review_uses_czech_read_only_sections_and_preserves_recognized_values(tmp_path) -> None:  # noqa: ANN001
@@ -407,7 +455,7 @@ def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path)
         assert candidate.booking_url == "https://www.booking.com/hotel/no/grand-hotel-honefoss.html"
         assert candidate.check_in == date(2026, 8, 26) and candidate.check_out == date(2026, 8, 27)
         assert candidate.nights == 1 and candidate.rooms_count == 1
-        assert candidate.adults == 2 and candidate.children is None
+        assert candidate.adults == 2 and candidate.children == 0
         assert candidate.breakfast_included is True
         assert candidate.free_cancellation is True
         assert str(candidate.cancellation_deadline) == "2026-08-24 23:59:00"
@@ -834,7 +882,9 @@ def test_check_now_persists_result_logs_once_and_shows_czech_flash(
     assert persisted is not None and persisted.status is status
     assert persisted.started_at is not None and persisted.finished_at is not None
     assert persisted.duration_ms is not None and persisted.next_check_at is not None
-    assert persisted.consecutive_failure_count == (0 if status is PriceCheckStatus.SUCCESS else 1)
+    assert persisted.consecutive_failure_count == (
+        0 if status in {PriceCheckStatus.SUCCESS, PriceCheckStatus.NO_MATCH} else 1
+    )
     records = [record for record in caplog.records if record.name == "bookingtracker.checks"]
     assert len(records) == 1
     payload = json.loads(records[0].message)

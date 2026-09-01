@@ -425,6 +425,21 @@ asynchronously and an otherwise identical request sometimes temporarily returns 
 surface, the browser waits for a known availability/no-availability root and performs at most one
 bounded repeat navigation before the unchanged parser receives its snapshot.
 
+The import boundary distinguishes an explicit occupancy block from the absence of unrelated
+words elsewhere in a confirmation. A single consistent adult count with no child count in that
+block means zero children; explicit child counts and known ages are retained, while conflicting
+or unrecognized evidence remains unknown. Before URL construction, a missing canonical URL,
+stay date, adult count, child count, or room count produces `incomplete_reservation` in the
+`reservation_validation` phase. It never opens the browser, creates a comparable price, raises a
+technical failure count, or triggers technical backoff.
+
+`success`, `no_comparable_offer`, and normal no-availability outcomes are technically healthy:
+they reset the infrastructure-failure count and use the normal interval. Navigation, timeout,
+browser, and parser errors alone back off. `acknowledged_at` remains exclusively a manual user
+confirmation. The detail derives whether a `CHECK_FAILED` is current from a later healthy check,
+without changing the alert row or its delivery history. Ordinary UI shows only approved Czech
+text, and diagnostic redaction markers are idempotent.
+
 The Mac-only live laboratory uses the same production parser, matcher, `PriceCheckService`, and
 `CheckRunner`, but injects volatile history/schedule repositories and a no-delivery alert boundary.
 Its persistent Chromium profile and captures live outside Git. Capture retains only the narrow

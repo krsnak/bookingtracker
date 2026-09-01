@@ -128,6 +128,25 @@ def test_price_check_service_builds_search_url_without_mutating_canonical_url(tm
     assert stored.booking_url == "https://www.booking.com/hotel/test/example.html"
 
 
+def test_incomplete_children_stops_before_navigation_with_czech_validation(tmp_path) -> None:  # noqa: ANN001
+    checked, stored, history = service(
+        tmp_path,
+        NavigationStatus.SUCCESS,
+        ParseResult(status=ParseStatus.SUCCESS, offers=[]),
+    )
+    stored = stored.model_copy(update={"children": None})
+
+    result = checked.check(stored)
+
+    assert result.status is PriceCheckStatus.INCOMPLETE_RESERVATION
+    assert result.reason_code is CheckReasonCode.INCOMPLETE_RESERVATION
+    assert result.diagnostic_phase is CheckDiagnosticPhase.RESERVATION_VALIDATION
+    assert "není uveden počet dětí" in (result.safe_error_detail or "")
+    assert checked.browser.last_url is None  # type: ignore[attr-defined]
+    assert result.comparison is None
+    assert history.latest(stored.id).comparison is None  # type: ignore[union-attr]
+
+
 def test_one_browser_retry_still_creates_one_price_check_record(tmp_path) -> None:  # noqa: ANN001
     checked, stored, history = service(
         tmp_path,

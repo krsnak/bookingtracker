@@ -17,6 +17,7 @@ from app.db.repository import (
 from app.presentation import (
     check_reason_text,
     check_result_text,
+    manual_check_flash,
     visible_safe_error_detail,
 )
 from app.pricing.diagnostics import reason_code_for, sanitize_error_detail
@@ -93,6 +94,20 @@ def test_short_check_results_never_expose_internal_statuses() -> None:
     for status, text in expected.items():
         record = PriceCheckRecord(reservation_id=reservation().id, status=status)
         assert check_result_text(record) == text
+
+
+def test_incomplete_reservation_has_a_specific_czech_user_message() -> None:
+    record = PriceCheckRecord(
+        reservation_id=reservation().id,
+        status=PriceCheckStatus.INCOMPLETE_RESERVATION,
+        reason_code=CheckReasonCode.INCOMPLETE_RESERVATION,
+        safe_error_detail=(
+            "Kontrolu nelze spustit, protože není uveden počet dětí. "
+            "Doplňte jej v editaci rezervace."
+        ),
+    )
+    assert manual_check_flash(record) == record.safe_error_detail
+    assert "facts are incomplete" not in manual_check_flash(record)
 
 
 def test_only_approved_czech_safe_detail_is_visible_in_ordinary_ui() -> None:
@@ -179,6 +194,13 @@ def test_safe_error_detail_redacts_sensitive_input(unsafe: str) -> None:
     assert len(safe) <= 240
 
 
+def test_error_sanitization_is_idempotent_for_legacy_reservation_placeholder() -> None:
+    once = sanitize_error_detail("reservation ABCDE")
+    assert once == "[reservation removed]"
+    assert sanitize_error_detail(once) == once
+    assert sanitize_error_detail("[[[[reservation removed]]]]") == once
+
+
 def _runner(tmp_path, statuses):  # noqa: ANN001
     database = SQLiteDatabase(tmp_path / "diagnostics.db")
     reservations = ReservationRepository(database)
@@ -233,7 +255,7 @@ def test_scheduler_persists_diagnostics_backoff_and_reset_across_connections(tmp
     assert history.latest(stored.id).duration_ms == 0  # type: ignore[union-attr]
 
 
-def test_no_comparable_offer_increments_then_success_resets_failure_count(tmp_path) -> None:  # noqa: ANN001,E501
+def test_no_comparable_offer_resets_technical_failure_count(tmp_path) -> None:  # noqa: ANN001,E501
     _, stored, _, runner = _runner(
         tmp_path, [PriceCheckStatus.NO_MATCH, PriceCheckStatus.SUCCESS]
     )
@@ -241,9 +263,28 @@ def test_no_comparable_offer_increments_then_success_resets_failure_count(tmp_pa
     succeeded = runner.run_check(stored.id, CheckTrigger.MANUAL)
     assert failed is not None and succeeded is not None
     assert failed.reason_code is CheckReasonCode.NO_COMPARABLE_OFFER
-    assert failed.consecutive_failure_count == 1
+    assert failed.consecutive_failure_count == 0
     assert failed.comparison is None
     assert succeeded.consecutive_failure_count == 0
+
+
+def test_incomplete_reservation_has_no_technical_backoff_or_failure_alert(tmp_path) -> None:  # noqa: ANN001,E501
+    database, stored, history, runner = _runner(
+        tmp_path, [PriceCheckStatus.TIMEOUT, PriceCheckStatus.INCOMPLETE_RESERVATION]
+    )
+    failed = runner.run_check(stored.id, CheckTrigger.MANUAL)
+    incomplete = runner.run_check(stored.id, CheckTrigger.MANUAL)
+
+    assert failed is not None and incomplete is not None
+    assert failed.consecutive_failure_count == 1
+    assert incomplete.consecutive_failure_count == 1
+    assert incomplete.reason_code is CheckReasonCode.INCOMPLETE_RESERVATION
+    assert incomplete.next_check_at == datetime(2026, 8, 24, 20, tzinfo=UTC)
+    assert not any(
+        alert.type is AlertType.CHECK_FAILED
+        for alert in AlertRepository(database).list_for_reservation(stored.id)
+    )
+    assert history.latest(stored.id).comparison is None  # type: ignore[union-attr]
 
 
 @pytest.mark.parametrize(

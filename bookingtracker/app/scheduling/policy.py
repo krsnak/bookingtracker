@@ -44,11 +44,18 @@ class SchedulePolicy:
                 self.settings.interval * (2 ** min(failures, 5)),
                 self.settings.max_infrastructure_backoff,
             )
-        elif status is PriceCheckStatus.SUCCESS:
+        elif status in {
+            PriceCheckStatus.SUCCESS,
+            PriceCheckStatus.NO_MATCH,
+            PriceCheckStatus.AMBIGUOUS,
+            PriceCheckStatus.NO_AVAILABILITY,
+        }:
             failures = 0
             delay = self.settings.interval
+        elif status is PriceCheckStatus.INCOMPLETE_RESERVATION:
+            # The user can correct the record; this is neither Booking nor browser failure.
+            delay = self.settings.interval
         else:
-            failures += 1
             delay = self.settings.interval
         jitter_limit = min(
             int(self.settings.jitter_max.total_seconds()), int(delay.total_seconds() / 10)

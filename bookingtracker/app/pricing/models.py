@@ -35,6 +35,7 @@ class PriceCheckStatus(StrEnum):
     PARSER_ERROR = "parser_error"
     BROWSER_ERROR = "browser_error"
     TIMEOUT = "timeout"
+    INCOMPLETE_RESERVATION = "incomplete_reservation"
 
 
 class CheckReasonCode(StrEnum):
@@ -47,9 +48,11 @@ class CheckReasonCode(StrEnum):
     PARSER_ERROR = "parser_error"
     NO_COMPARABLE_OFFER = "no_comparable_offer"
     UNEXPECTED_ERROR = "unexpected_error"
+    INCOMPLETE_RESERVATION = "incomplete_reservation"
 
 
 class CheckDiagnosticPhase(StrEnum):
+    RESERVATION_VALIDATION = "reservation_validation"
     PAGE_NAVIGATION = "page_navigation"
     PAGE_STATE_DETECTION = "page_state_detection"
     OFFER_COLLECTION = "offer_collection"

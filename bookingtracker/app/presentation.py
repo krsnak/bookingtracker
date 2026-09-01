@@ -30,12 +30,21 @@ _REASON_TEXTS = {
         "Nebyla nalezena nabídka, kterou lze bezpečně porovnat s rezervací."
     ),
     CheckReasonCode.UNEXPECTED_ERROR: "Kontrola skončila neočekávanou technickou chybou.",
+    CheckReasonCode.INCOMPLETE_RESERVATION: "Rezervace nemá všechny údaje potřebné ke kontrole.",
 }
 
 _VISIBLE_SAFE_DETAILS = {
     "Volitelný prvek nabídky nebyl nalezen.",
     "Povinná struktura cenové nabídky nebyla rozpoznána.",
     "Nebyla nalezena bezpečně porovnatelná nabídka.",
+    "Kontrolu nelze spustit, protože chybí odkaz na Booking.com. Doplňte jej v editaci rezervace.",
+    (
+        "Kontrolu nelze spustit, protože není uveden příjezd nebo odjezd. "
+        "Doplňte jej v editaci rezervace."
+    ),
+    "Kontrolu nelze spustit, protože není uveden počet dospělých. Doplňte jej v editaci rezervace.",
+    "Kontrolu nelze spustit, protože není uveden počet dětí. Doplňte jej v editaci rezervace.",
+    "Kontrolu nelze spustit, protože není uveden počet pokojů. Doplňte jej v editaci rezervace.",
 }
 
 
@@ -83,6 +92,8 @@ def manual_check_flash(record: PriceCheckRecord) -> str:
             "Kontrola byla dokončena, ale nebyla nalezena bezpečně "
             "porovnatelná nabídka."
         )
+    if record.status is PriceCheckStatus.INCOMPLETE_RESERVATION:
+        return visible_safe_error_detail(record) or check_reason_text(record.reason_code)
     return "Kontrolu ceny se nepodařilo dokončit. Podrobnosti jsou uvedeny níže."
 
 

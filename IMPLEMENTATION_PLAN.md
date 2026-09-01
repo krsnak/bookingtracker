@@ -25,8 +25,15 @@ production-complete.
 Phases 0–10 are complete. The architecture supports macOS development and
 Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
 after production validation. Diagnostic 0.5.1 is production-validated. Parser
-parser/navigation reliability 0.5.3 is implementation complete with release validation pending;
-Phases 11B–11D are not started.
+parser/navigation reliability 0.5.3 is production-validated; its corrective follow-up awaits
+review; Phases 11B–11D are not started.
+
+Post-release production validation identified one import/input classification follow-up: Papaya
+confirmed that an explicit adults-only block must persist `children=0`, and that an unknown child
+count is a repairable reservation input rather than a Booking navigation failure. The corrective
+work preserves the existing parser/matcher contract: a completed `no_comparable_offer` is healthy,
+resets technical failure state, uses the normal schedule interval, and hides a superseded
+technical failure alert only on the current detail while preserving alert/history rows.
 
 | Scope | Status |
 | --- | --- |
@@ -35,7 +42,7 @@ Phases 11B–11D are not started.
 | Phase 11 | IN PROGRESS |
 | Phase 11A / 0.5.0 | COMPLETE |
 | Diagnostic 0.5.1 | COMPLETE, PRODUCTION-VALIDATED |
-| Parser/navigation reliability 0.5.3 | IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING |
+| Parser/navigation reliability 0.5.3 | PRODUCTION-VALIDATED; CORRECTIVE FOLLOW-UP PENDING REVIEW |
 | Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
@@ -223,7 +230,7 @@ BookingTracker remains a local, single-user Home Assistant application. Phases
 and monitored. Phase 11A / 0.5.0 is complete after production validation. The
 diagnostic 0.5.1 implementation is production-validated. That validation found a false global
 timeout caused by one optional locator read. Parser/navigation reliability 0.5.3 includes the
-follow-on deterministic URL and scheduler fixes and awaits release validation on the Pi; later
+follow-on deterministic URL and scheduler fixes and is production-validated on the Pi; later
 Phase 11 items have not started.
 
 ### Phase 11A — navigation, Czech language, and typography (complete, 0.5.0)
@@ -264,7 +271,7 @@ Phase 11 items have not started.
    `detect_page_state` let `Locator.inner_text: Timeout 1000ms exceeded` escape into the
    navigation timeout handler. This established the 0.5.2 reliability priority.
 
-### Parser/navigation reliability (implementation complete; release validation pending, 0.5.3)
+### Parser/navigation reliability (production-validated; corrective follow-up pending review, 0.5.3)
 
 1. [x] Bound optional locator reads under one shared budget and catch only expected
    Playwright locator timeouts.
@@ -277,7 +284,10 @@ Phase 11 items have not started.
 6. [x] Validate the production pipeline locally: STORHAUGEN reached `success`/`exact_match` at
    1250 NOK against 1138.39 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar
    Dikrayat safely returned `no_comparable_offer` without a false comparison or alert.
-7. [ ] Install 0.5.3 on the Raspberry Pi and repeat one manual check for every active reservation.
+7. [x] Install 0.5.3 on the Raspberry Pi and repeat one manual check for every active reservation.
+   Papaya confirmed the expected `no_comparable_offer` after `children=0` was supplied. Its
+   production record was already corrected manually; the import follow-up is for future or safe
+   repeat imports and does not alter Atlas Haven or Dar Dikrayat automatically.
 
 ### Phase 11B — reservation overview (not started; planned 0.5.4)
 

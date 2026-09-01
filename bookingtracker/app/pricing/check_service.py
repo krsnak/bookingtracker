@@ -49,29 +49,37 @@ class PriceCheckService:
 
     def check(self, reservation: Reservation, *, run_id: str | None = None) -> PriceCheckRecord:
         started_at = datetime.now(UTC)
-        if not reservation.booking_url:
+        incomplete_detail = self._incomplete_reservation_detail(reservation)
+        if incomplete_detail:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
                     checked_at=started_at,
                     started_at=started_at,
                     run_id=run_id or "explicit-check",
-                    status=PriceCheckStatus.NAVIGATION_ERROR,
-                    error="reservation has no Booking URL",
+                    status=PriceCheckStatus.INCOMPLETE_RESERVATION,
+                    reason_code=CheckReasonCode.INCOMPLETE_RESERVATION,
+                    diagnostic_phase=CheckDiagnosticPhase.RESERVATION_VALIDATION,
+                    safe_error_detail=incomplete_detail,
                 ),
                 [],
             )
         try:
             navigation_url = build_booking_search_url(reservation.booking_url, reservation)
-        except BookingSearchUrlError as error:
+        except BookingSearchUrlError:
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
                     checked_at=started_at,
                     started_at=started_at,
                     run_id=run_id or "explicit-check",
-                    status=PriceCheckStatus.NAVIGATION_ERROR,
-                    error=str(error),
+                    status=PriceCheckStatus.INCOMPLETE_RESERVATION,
+                    reason_code=CheckReasonCode.INCOMPLETE_RESERVATION,
+                    diagnostic_phase=CheckDiagnosticPhase.RESERVATION_VALIDATION,
+                    safe_error_detail=(
+                        "Kontrolu nelze spustit, protože odkaz na Booking.com není platný. "
+                        "Doplňte jej v editaci rezervace."
+                    ),
                 ),
                 [],
             )
@@ -258,6 +266,35 @@ class PriceCheckService:
         }:
             return CheckDiagnosticPhase.OFFER_COLLECTION
         return CheckDiagnosticPhase.EXACT_MATCH
+
+    @staticmethod
+    def _incomplete_reservation_detail(reservation: Reservation) -> str | None:
+        if not reservation.booking_url:
+            return (
+                "Kontrolu nelze spustit, protože chybí odkaz na Booking.com. "
+                "Doplňte jej v editaci rezervace."
+            )
+        if not reservation.check_in or not reservation.check_out:
+            return (
+                "Kontrolu nelze spustit, protože není uveden příjezd nebo odjezd. "
+                "Doplňte jej v editaci rezervace."
+            )
+        if reservation.adults is None:
+            return (
+                "Kontrolu nelze spustit, protože není uveden počet dospělých. "
+                "Doplňte jej v editaci rezervace."
+            )
+        if reservation.children is None:
+            return (
+                "Kontrolu nelze spustit, protože není uveden počet dětí. "
+                "Doplňte jej v editaci rezervace."
+            )
+        if reservation.rooms_count is None:
+            return (
+                "Kontrolu nelze spustit, protože není uveden počet pokojů. "
+                "Doplňte jej v editaci rezervace."
+            )
+        return None
 
     @staticmethod
     def _navigation_status(status: NavigationStatus) -> PriceCheckStatus | None:

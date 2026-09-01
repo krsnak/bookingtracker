@@ -35,7 +35,7 @@ from app.alerts.notifications import (
     NotificationAdapter,
     sanitize_notification_error,
 )
-from app.alerts.service import AlertService
+from app.alerts.service import AlertService, check_failed_is_superseded
 from app.booking.parser import BookingRateParser
 from app.browser.executor import ThreadBoundBookingBrowser
 from app.browser.lease import ManualBrowserLease
@@ -493,12 +493,17 @@ def create_app(
         if item is None:
             raise HTTPException(404, "Reservation not found")
         flash = app.state.reservation_flash.pop(reservation_id, None)
+        checks_for_detail = history.list_for_reservation(item.id)
         return render(
             request,
             "detail.html",
             reservation=item,
-            checks=history.list_for_reservation(item.id),
-            alerts=alerts.list_for_reservation(item.id),
+            checks=checks_for_detail,
+            alerts=[
+                alert
+                for alert in alerts.list_for_reservation(item.id)
+                if not check_failed_is_superseded(alert, checks_for_detail)
+            ],
             schedule=actual_runner.schedules.get(item.id),
             flash=flash,
         )

@@ -5,7 +5,8 @@ State is persisted only in `/data`: SQLite, logs, and the Booking browser profil
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
 — is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
 The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED**.
-Parser/navigation reliability 0.5.3 is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**.
+Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**; its corrective import/input
+follow-up is locally verified and pending review.
 Phase 11B is planned for 0.5.4, Phase 11C for 0.5.5, and Phase 11D for 0.5.6.
 
 The planned UI remains server-rendered, local, single-user, and fully
@@ -42,6 +43,16 @@ real config, and captures never enter the add-on or Git. Live validation yielded
 `success`/`exact_match` at 1250 NOK against 1138.39 NOK with no `PRICE_DROP`; Papaya Hostel,
 Atlas Haven, and Dar Dikrayat safely returned `no_comparable_offer` without a false comparison or
 alert.
+
+The unreleased post-0.5.3 corrective change records `children=0` only from a reliable adults-only
+occupancy block, never merely because a document does not mention children. Missing required
+search facts are classified as `incomplete_reservation`/`reservation_validation` before browser
+navigation and render a Czech edit instruction. A valid `no_comparable_offer` is not a technical
+failure: it resets the failure count, keeps the normal interval, creates no failure alert, and
+hides an older superseded technical-failure alert only on the reservation detail. Exact matching and
+comparable-price requirements remain unchanged.
+Papaya's existing production record already has `children=0`; no re-import is needed after this
+change. Atlas Haven and Dar Dikrayat remain untouched without their original import evidence.
 
 Version `0.5.1` adds the CSRF-protected, Ingress-aware `Zkontrolovat nyní` action. It uses the
 same non-overlapping shared runner, persistent browser context, exact matcher, schedule state,

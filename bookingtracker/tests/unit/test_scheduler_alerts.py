@@ -7,7 +7,7 @@ from uuid import UUID
 
 from app.alerts.models import Alert, AlertSeverity, AlertType, DeliveryStatus
 from app.alerts.notifications import HomeAssistantNotificationAdapter
-from app.alerts.service import AlertService
+from app.alerts.service import AlertService, check_failed_is_superseded
 from app.db.connection import SQLiteDatabase
 from app.db.repository import (
     AlertRepository,
@@ -145,6 +145,41 @@ def test_login_captcha_and_repeated_failure_alerts_are_deduplicated(tmp_path) ->
     assert [alert.type for alert in alerts.list_for_reservation(stored.id)].count(
         AlertType.CHECK_FAILED
     ) == 1
+
+
+def test_healthy_non_comparable_result_supersedes_failure_without_false_acknowledgement(
+    tmp_path,
+) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "resolved-alert.db")
+    stored = ReservationRepository(database).create(reservation())
+    history = PriceCheckRepository(database)
+    alerts = AlertRepository(database)
+    service = AlertService(alerts, history, RecordingNotifier(), failure_threshold=3)
+    failed = history.create(
+        PriceCheckRecord(reservation_id=stored.id, status=PriceCheckStatus.TIMEOUT), []
+    )
+    service.process(failed, stored, consecutive_failures=3)
+
+    no_match = history.create(
+        PriceCheckRecord(reservation_id=stored.id, status=PriceCheckStatus.NO_MATCH), []
+    )
+    service.process(no_match, stored, consecutive_failures=0)
+
+    historical = alerts.list_for_reservation(stored.id)
+    assert len(historical) == 1 and historical[0].acknowledged_at is None
+    assert check_failed_is_superseded(historical[0], history.list_for_reservation(stored.id))
+
+    next_failure = history.create(
+        PriceCheckRecord(reservation_id=stored.id, status=PriceCheckStatus.TIMEOUT), []
+    )
+    service.process(next_failure, stored, consecutive_failures=3)
+    failure_alerts = [
+        alert
+        for alert in alerts.list_for_reservation(stored.id)
+        if alert.type is AlertType.CHECK_FAILED
+    ]
+    assert len(failure_alerts) == 2
+    assert all(alert.acknowledged_at is None for alert in failure_alerts)
 
 
 def test_czech_check_failed_payload_contains_property_reason_count_and_next_attempt(

@@ -4,9 +4,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from app.reservations.deterministic_parser import parse_anchored_property_name
+from app.reservations.deterministic_parser import parse_anchored_property_name, parse_occupancy
 from app.reservations.extractor import ReservationExtractor
-from app.reservations.models import FieldConfidence
+from app.reservations.import_document import ReservationImportDocument
+from app.reservations.models import FieldConfidence, ImportDocumentSource
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
@@ -23,7 +24,7 @@ def test_extracts_papaya_confirmation_and_preserves_price_concepts() -> None:
     assert candidate.check_out == date(2026, 9, 19)
     assert candidate.nights == 1
     assert candidate.adults == 2
-    assert candidate.children is None
+    assert candidate.children == 0
     assert candidate.rooms_count == 1
     assert candidate.room_type == "Economy Triple Room"
     assert candidate.booked_base_price == Decimal("14.07")
@@ -74,7 +75,7 @@ def test_extracts_english_confirmation_without_treating_destination_as_property(
     assert candidate.check_out == date(2026, 8, 26)
     assert candidate.nights == 1
     assert candidate.room_type == "Standard Twin Room"
-    assert candidate.adults == 2 and candidate.children is None
+    assert candidate.adults == 2 and candidate.children == 0
     assert candidate.breakfast_included is False and candidate.meal_plan == "No meals included"
     assert candidate.cancellation_deadline == datetime(2026, 8, 25, 14)
     assert candidate.booked_base_price == Decimal("194.44")
@@ -137,6 +138,39 @@ def test_security_paragraph_is_never_a_property_name() -> None:
     assert candidate.property_name is None
 
 
+def test_occupancy_only_adults_means_zero_children_in_czech_and_english() -> None:
+    assert parse_occupancy(["Rezervace pro: 2 dospělí"]) == (2, 0, None)
+    assert parse_occupancy(["Reservations for: 2 adults"]) == (2, 0, None)
+
+
+def test_occupancy_preserves_explicit_children_and_known_ages() -> None:
+    assert parse_occupancy(["2 dospělí, 1 dítě", "Věk dítěte: 7"]) == (2, 1, [7])
+    assert parse_occupancy(["2 adults, 1 child"]) == (2, 1, None)
+
+
+def test_occupancy_conflicts_or_missing_guest_block_remain_unknown() -> None:
+    assert parse_occupancy(["2 adults", "3 adults"]) == (None, None, None)
+    assert parse_occupancy(["Property: Safe Hotel", "No children mentioned"]) == (None, None, None)
+
+
+def test_papaya_sanitized_import_sets_zero_children() -> None:
+    candidate = extract_fixture("papaya_confirmation.txt")
+    assert (candidate.adults, candidate.children, candidate.rooms_count) == (2, 0, 1)
+
+
+def test_text_and_pdf_documents_share_adults_only_occupancy_result() -> None:
+    text = "Property: Safe Hotel\n2 adults\n1 night, Twin Room\nTotal price EUR 100"
+    extractor = ReservationExtractor()
+    text_candidate = extractor.extract_document(
+        ReservationImportDocument(text=text, source=ImportDocumentSource.TEXT)
+    )
+    pdf_candidate = extractor.extract_document(
+        ReservationImportDocument(text=text, source=ImportDocumentSource.PDF)
+    )
+    assert (text_candidate.adults, text_candidate.children) == (2, 0)
+    assert (pdf_candidate.adults, pdf_candidate.children) == (2, 0)
+
+
 def test_flags_competing_totals_and_does_not_block_reviewable_critical_data() -> None:
     candidate = extract_fixture("ambiguous_confirmation.txt")
 
@@ -171,7 +205,7 @@ def test_extracts_czech_markdown_tables_without_cross_section_price_confusion() 
     assert candidate.check_out == date(2026, 9, 6)
     assert candidate.nights == 1
     assert candidate.adults == 2
-    assert candidate.children is None  # Unspecified children remain unknown, never assumed absent.
+    assert candidate.children == 0
     assert candidate.room_type == "Třílůžkový pokoj s balkonem"
     assert candidate.breakfast_included is True
     assert candidate.meal_plan == "Breakfast included"
