@@ -24,7 +24,7 @@ from app.pricing.models import (
     PriceCheckStatus,
     PriceComparison,
 )
-from app.scheduling.models import CheckTrigger
+from app.scheduling.models import CheckRunBlockReason, CheckTrigger, ScheduleState
 from app.scheduling.policy import SchedulePolicy, SchedulerSettings
 from app.scheduling.service import CheckRunner, ReservationScheduler
 from test_exact_reservation_matcher import reservation
@@ -346,7 +346,7 @@ def test_scheduler_persists_due_state_skips_inactive_or_expired_and_backs_off(tm
     assert runner.run_check(active.id, CheckTrigger.MANUAL) is not None
 
 
-def test_shared_runner_serializes_manual_and_scheduled_browser_checks(tmp_path) -> None:  # noqa: ANN001
+def test_waiting_scheduler_run_revalidates_after_manual_completion(tmp_path) -> None:  # noqa: ANN001
     database = SQLiteDatabase(tmp_path / "scheduler.db")
     reservations = ReservationRepository(database)
     stored = reservations.create(reservation(active=True))
@@ -362,7 +362,7 @@ def test_shared_runner_serializes_manual_and_scheduled_browser_checks(tmp_path) 
         clock=lambda: now,
     )
     first = Thread(target=lambda: runner.run_check(stored.id, CheckTrigger.MANUAL))
-    second = Thread(target=lambda: runner.run_check(stored.id, CheckTrigger.SCHEDULED))
+    second = Thread(target=lambda: runner.run_check(stored.id, CheckTrigger.SCHEDULER))
 
     first.start()
     assert pipeline.started.wait(timeout=1)
@@ -372,7 +372,109 @@ def test_shared_runner_serializes_manual_and_scheduled_browser_checks(tmp_path) 
     first.join(timeout=1)
     second.join(timeout=1)
 
-    assert pipeline.calls == [stored.id, stored.id]
+    assert pipeline.calls == [stored.id]
+    assert len(history.list_for_reservation(stored.id)) == 1
+
+
+def test_scheduler_skips_busy_manual_check_without_history_write(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "scheduler-busy.db")
+    reservations = ReservationRepository(database)
+    stored = reservations.create(reservation(active=True))
+    history = PriceCheckRepository(database)
+    pipeline = BlockingPipeline(history)
+    now = datetime(2026, 8, 22, 12, tzinfo=UTC)
+    runner = CheckRunner(
+        reservations,
+        pipeline,  # type: ignore[arg-type]
+        ScheduleStateRepository(database),
+        SchedulePolicy(jitter_seconds=lambda maximum: 0),
+        AlertService(AlertRepository(database), history, RecordingNotifier()),
+        clock=lambda: now,
+    )
+    manual = Thread(target=lambda: runner.run_check(stored.id, CheckTrigger.MANUAL))
+    manual.start()
+    assert pipeline.started.wait(timeout=1)
+
+    try:
+        assert ReservationScheduler(runner).run_due() == []
+        assert history.list_for_reservation(stored.id) == []
+        assert pipeline.calls == []
+    finally:
+        pipeline.release.set()
+        manual.join(timeout=1)
+
+    assert not manual.is_alive()
+    assert pipeline.calls == [stored.id]
+    assert len(history.list_for_reservation(stored.id)) == 1
+
+
+def test_scheduler_revalidates_due_state_inside_lock_before_writing_history(tmp_path) -> None:  # noqa: ANN001,E501
+    database = SQLiteDatabase(tmp_path / "scheduler-revalidate.db")
+    reservations = ReservationRepository(database)
+    stored = reservations.create(reservation(active=True))
+    history = PriceCheckRepository(database)
+    now = datetime(2026, 8, 22, 12, tzinfo=UTC)
+    due = ScheduleState(reservation_id=stored.id, next_check_at=now, updated_at=now)
+    future = due.model_copy(update={"next_check_at": now + timedelta(hours=8)})
+
+    class AdvancingSchedules:
+        def __init__(self) -> None:
+            self.get_calls = 0
+
+        def get(self, reservation_id):  # noqa: ANN001, ANN201
+            assert reservation_id == stored.id
+            self.get_calls += 1
+            return due if self.get_calls == 1 else future
+
+        def save(self, state):  # noqa: ANN001, ANN201
+            raise AssertionError(f"scheduler must not save {state}")
+
+    schedules = AdvancingSchedules()
+    pipeline = StaticPipeline(history, PriceCheckStatus.SUCCESS)
+    runner = CheckRunner(
+        reservations,
+        pipeline,  # type: ignore[arg-type]
+        schedules,  # type: ignore[arg-type]
+        SchedulePolicy(jitter_seconds=lambda maximum: 0),
+        AlertService(AlertRepository(database), history, RecordingNotifier()),
+        clock=lambda: now,
+    )
+
+    assert ReservationScheduler(runner).run_due() == []
+    assert schedules.get_calls == 2
+    assert pipeline.calls == []
+    assert history.list_for_reservation(stored.id) == []
+
+
+def test_manual_busy_then_later_manual_request_has_exactly_two_legitimate_runs(tmp_path) -> None:  # noqa: ANN001,E501
+    database = SQLiteDatabase(tmp_path / "manual-busy.db")
+    reservations = ReservationRepository(database)
+    stored = reservations.create(reservation(active=True))
+    history = PriceCheckRepository(database)
+    pipeline = BlockingPipeline(history)
+    runner = CheckRunner(
+        reservations,
+        pipeline,  # type: ignore[arg-type]
+        ScheduleStateRepository(database),
+        SchedulePolicy(jitter_seconds=lambda maximum: 0),
+        AlertService(AlertRepository(database), history, RecordingNotifier()),
+    )
+    first = Thread(target=lambda: runner.run_check(stored.id, CheckTrigger.MANUAL))
+    first.start()
+    assert pipeline.started.wait(timeout=1)
+
+    duplicate = runner.try_run_check(stored.id, CheckTrigger.MANUAL)
+    assert duplicate.blocked_reason is CheckRunBlockReason.BUSY
+    assert history.list_for_reservation(stored.id) == []
+
+    pipeline.release.set()
+    first.join(timeout=1)
+    assert not first.is_alive()
+    assert len(history.list_for_reservation(stored.id)) == 1
+
+    later = runner.try_run_check(stored.id, CheckTrigger.MANUAL)
+    assert later.record is not None
+    assert len(history.list_for_reservation(stored.id)) == 2
 
 
 def test_manual_remote_lease_blocks_scheduler_without_a_price_check(tmp_path) -> None:  # noqa: ANN001
@@ -418,7 +520,7 @@ def test_manual_failure_alert_is_deduplicated_against_following_scheduler_run(
 
     for _ in range(3):
         runner.run_check(stored.id, CheckTrigger.MANUAL)
-    runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+    runner.run_check(stored.id, CheckTrigger.SCHEDULER)
     pipeline.status = PriceCheckStatus.SUCCESS
     succeeded = runner.run_check(stored.id, CheckTrigger.MANUAL)
 

@@ -839,7 +839,10 @@ def test_check_now_persists_result_logs_once_and_shows_czech_flash(
     assert len(records) == 1
     payload = json.loads(records[0].message)
     assert payload["event"] == "booking_check_completed"
-    assert payload["property_name"] == "STORHAUGEN GARD"
+    assert payload["trigger"] == "manual"
+    assert payload["started_at"] == persisted.started_at.isoformat()
+    assert "property_name" not in payload
+    assert "reservation_id" not in payload
     assert payload["status"] == status.value
     assert payload["reason_code"] == (
         persisted.reason_code.value if persisted.reason_code else None
@@ -918,7 +921,7 @@ def test_check_now_returns_immediately_when_shared_runner_is_busy(tmp_path) -> N
     pipeline = BlockingManualCheckPipeline(app.state.history)
     app.state.runner.checks = pipeline
     running = Thread(
-        target=lambda: app.state.runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+        target=lambda: app.state.runner.run_check(stored.id, CheckTrigger.SCHEDULER)
     )
     running.start()
     assert pipeline.started.wait(timeout=1)

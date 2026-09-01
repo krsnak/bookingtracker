@@ -13,11 +13,13 @@ from app.pricing.models import PriceCheckRecord
 
 class CheckTrigger(StrEnum):
     MANUAL = "manual"
-    SCHEDULED = "scheduled"
+    MANUAL_ALL = "manual_all"
+    SCHEDULER = "scheduler"
 
 
 class CheckRunBlockReason(StrEnum):
     BUSY = "busy"
+    NOT_DUE = "not_due"
     MANUAL_SESSION_ACTIVE = "manual_session_active"
     RESERVATION_NOT_FOUND = "reservation_not_found"
     RESERVATION_INACTIVE = "reservation_inactive"

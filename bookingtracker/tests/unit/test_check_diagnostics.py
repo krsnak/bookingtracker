@@ -253,12 +253,12 @@ def test_no_comparable_offer_increments_then_success_resets_failure_count(tmp_pa
         (PriceCheckStatus.TIMEOUT, logging.WARNING),
     ],
 )
-def test_automatic_check_writes_one_structured_log(tmp_path, caplog, status, level) -> None:  # noqa: ANN001,E501
+def test_scheduler_check_writes_one_safe_structured_log(tmp_path, caplog, status, level) -> None:  # noqa: ANN001,E501
     _, stored, _, runner = _runner(tmp_path, [status])
     logger = logging.getLogger("bookingtracker.checks")
     logger.addHandler(caplog.handler)
     try:
-        result = runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+        result = runner.run_check(stored.id, CheckTrigger.SCHEDULER)
     finally:
         logger.removeHandler(caplog.handler)
     assert result is not None
@@ -266,12 +266,14 @@ def test_automatic_check_writes_one_structured_log(tmp_path, caplog, status, lev
     assert len(records) == 1 and records[0].levelno == level
     payload = json.loads(records[0].message)
     assert payload["event"] == "booking_check_completed"
-    assert payload["property_name"] == stored.property_name
-    assert payload["reservation_id"] == str(stored.id)
+    assert payload["trigger"] == "scheduler"
+    assert payload["started_at"] == result.started_at.isoformat()
     assert payload["status"] == status.value
     assert "diagnostic_phase" in payload
     assert payload["consecutive_failure_count"] == result.consecutive_failure_count
     assert payload["next_check_at"] == result.next_check_at.isoformat()
+    assert "property_name" not in payload
+    assert "reservation_id" not in payload
 
 
 def test_unexpected_exception_is_persisted_and_safely_logged_without_price_alert(
@@ -303,7 +305,7 @@ def test_unexpected_exception_is_persisted_and_safely_logged_without_price_alert
     logger = logging.getLogger("bookingtracker.checks")
     logger.addHandler(caplog.handler)
     try:
-        result = runner.run_check(stored.id, CheckTrigger.SCHEDULED)
+        result = runner.run_check(stored.id, CheckTrigger.SCHEDULER)
     finally:
         logger.removeHandler(caplog.handler)
     assert result is not None

@@ -42,6 +42,18 @@ class FakeBrowser:
         return FakePage()
 
 
+class RetryOnceBrowser(FakeBrowser):
+    """Represents one browser navigation whose availability retry stayed internal."""
+
+    def __init__(self) -> None:
+        super().__init__(NavigationStatus.SUCCESS)
+        self.goto_attempts = 0
+
+    def navigate(self, url: str) -> NavigationResult:
+        self.goto_attempts = 2
+        return super().navigate(url)
+
+
 class SnapshotBrowser(FakeBrowser):
     def __init__(self, html: str) -> None:
         super().__init__(NavigationStatus.SUCCESS)
@@ -114,6 +126,25 @@ def test_price_check_service_builds_search_url_without_mutating_canonical_url(tm
         "group_children=0&no_rooms=1&selected_currency=EUR"
     )
     assert stored.booking_url == "https://www.booking.com/hotel/test/example.html"
+
+
+def test_one_browser_retry_still_creates_one_price_check_record(tmp_path) -> None:  # noqa: ANN001
+    checked, stored, history = service(
+        tmp_path,
+        NavigationStatus.SUCCESS,
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            offers=[rate(current_price=Decimal("16.88"), taxes_included=True)],
+        ),
+    )
+    browser = RetryOnceBrowser()
+    checked.browser = browser
+
+    result = checked.check(stored)
+
+    assert browser.goto_attempts == 2
+    assert result.status is PriceCheckStatus.SUCCESS
+    assert len(history.list_for_reservation(stored.id)) == 1
 
 
 def test_no_match_ambiguous_and_failures_are_persisted_without_prices(tmp_path) -> None:  # noqa: ANN001

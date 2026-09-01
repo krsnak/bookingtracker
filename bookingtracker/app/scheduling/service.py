@@ -92,13 +92,17 @@ class CheckRunner:
                 )
             now = self.clock()
             if (
-                trigger is CheckTrigger.SCHEDULED
+                trigger is CheckTrigger.SCHEDULER
                 and reservation.check_in
                 and reservation.check_in <= now.date()
             ):
                 return CheckRunOutcome(
                     blocked_reason=CheckRunBlockReason.RESERVATION_INACTIVE
                 )
+            if trigger is CheckTrigger.SCHEDULER:
+                state = self.schedules.get(reservation.id)
+                if state is not None and state.next_check_at > now:
+                    return CheckRunOutcome(blocked_reason=CheckRunBlockReason.NOT_DUE)
             try:
                 record = self.checks.check(reservation, run_id=f"{trigger}:{reservation.id}")
             except Exception as error:
@@ -153,7 +157,7 @@ class CheckRunner:
                 }
             )
             self.checks.history.complete_with_schedule(record, updated)
-            self._log_completed_check(record, reservation.property_name)
+            self._log_completed_check(record, trigger)
             self.alerts.process(
                 record, reservation, consecutive_failures=updated.consecutive_failures
             )
@@ -162,13 +166,12 @@ class CheckRunner:
             self._lock.release()
 
     @staticmethod
-    def _log_completed_check(record: PriceCheckRecord, property_name: str | None) -> None:
-        safe_property = sanitize_error_detail(property_name, fallback="Neuvedené ubytování")
+    def _log_completed_check(record: PriceCheckRecord, trigger: CheckTrigger) -> None:
         safe_detail = sanitize_error_detail(record.safe_error_detail)
         payload = {
             "event": "booking_check_completed",
-            "property_name": safe_property,
-            "reservation_id": str(record.reservation_id),
+            "trigger": trigger.value,
+            "started_at": (record.started_at or record.checked_at).isoformat(),
             "status": record.status.value,
             "reason_code": record.reason_code.value if record.reason_code else None,
             "diagnostic_phase": (
@@ -216,9 +219,9 @@ class ReservationScheduler:
                 )
                 self.runner.schedules.save(state)
             if state.next_check_at <= now:
-                result = self.runner.run_check(reservation.id, CheckTrigger.SCHEDULED)
-                if result:
-                    completed.append(result)
+                outcome = self.runner.try_run_check(reservation.id, CheckTrigger.SCHEDULER)
+                if outcome.record:
+                    completed.append(outcome.record)
         return completed
 
     def stop(self) -> None:
