@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.3
 
 - Build every manual and scheduled Booking navigation URL deterministically from the stored
   canonical hotel URL, dates, occupancy, rooms, known child ages, and optional currency without
@@ -10,6 +10,15 @@
 - Recognize the explicit Czech final-price evidence `Zahrnuje daně a poplatky` and add a local
   production-`CheckRunner` dry-run laboratory with sanitized capture/replay and no persistent or
   alert side effects.
+- Skip scheduler checks when the shared runner is busy, then revalidate `next_check_at` after
+  lock acquisition so a completed manual check cannot create a second stale history row.
+- Emit privacy-safe `trigger` and exact `started_at` fields in completed-check logs without a
+  property name or reservation identifier.
+- Preserve exact-match requirements and the rule that an unaccepted or non-comparable offer
+  cannot produce a `PRICE_DROP`.
+- Live validation: STORHAUGEN completed `success`/`exact_match` at 1250 NOK against 1138.39 NOK
+  without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar Dikrayat each safely ended as
+  `no_comparable_offer`. No live test created a false comparison or alert.
 
 ## 0.5.2
 

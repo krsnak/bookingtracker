@@ -25,7 +25,7 @@ production-complete.
 Phases 0–10 are complete. The architecture supports macOS development and
 Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
 after production validation. Diagnostic 0.5.1 is production-validated. Parser
-reliability 0.5.2 is implementation complete with production validation pending;
+parser/navigation reliability 0.5.3 is implementation complete with release validation pending;
 Phases 11B–11D are not started.
 
 | Scope | Status |
@@ -35,7 +35,7 @@ Phases 11B–11D are not started.
 | Phase 11 | IN PROGRESS |
 | Phase 11A / 0.5.0 | COMPLETE |
 | Diagnostic 0.5.1 | COMPLETE, PRODUCTION-VALIDATED |
-| Parser reliability 0.5.2 | IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING |
+| Parser/navigation reliability 0.5.3 | IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING |
 | Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
@@ -222,8 +222,9 @@ BookingTracker remains a local, single-user Home Assistant application. Phases
 0–10 remain complete, the production PDF import from 0.4.3 remains functional
 and monitored. Phase 11A / 0.5.0 is complete after production validation. The
 diagnostic 0.5.1 implementation is production-validated. That validation found a false global
-timeout caused by one optional locator read. Parser reliability 0.5.2 fixes the root cause and
-awaits Pi validation; later Phase 11 items have not started.
+timeout caused by one optional locator read. Parser/navigation reliability 0.5.3 includes the
+follow-on deterministic URL and scheduler fixes and awaits release validation on the Pi; later
+Phase 11 items have not started.
 
 ### Phase 11A — navigation, Czech language, and typography (complete, 0.5.0)
 
@@ -263,7 +264,7 @@ awaits Pi validation; later Phase 11 items have not started.
    `detect_page_state` let `Locator.inner_text: Timeout 1000ms exceeded` escape into the
    navigation timeout handler. This established the 0.5.2 reliability priority.
 
-### Parser reliability (implementation complete; production validation pending, 0.5.2)
+### Parser/navigation reliability (implementation complete; release validation pending, 0.5.3)
 
 1. [x] Bound optional locator reads under one shared budget and catch only expected
    Playwright locator timeouts.
@@ -273,10 +274,12 @@ awaits Pi validation; later Phase 11 items have not started.
 4. [x] Hide raw English library detail from ordinary UI and notifications.
 5. [x] Add a sanitized STORHAUGEN fixture with missing optional evidence and a later valid
    exact candidate, plus runtime-budget and actual Playwright timeout regressions.
-6. [ ] Repeat the STORHAUGEN production check on 0.5.2 and confirm the locator timeout no
-   longer terminates navigation or appears as the user-visible failure.
+6. [x] Validate the production pipeline locally: STORHAUGEN reached `success`/`exact_match` at
+   1250 NOK against 1138.39 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar
+   Dikrayat safely returned `no_comparable_offer` without a false comparison or alert.
+7. [ ] Install 0.5.3 on the Raspberry Pi and repeat one manual check for every active reservation.
 
-### Phase 11B — reservation overview (not started; planned 0.5.3)
+### Phase 11B — reservation overview (not started; planned 0.5.4)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -293,7 +296,7 @@ awaits Pi validation; later Phase 11 items have not started.
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.4)
+### Phase 11C — property images (not started; planned 0.5.5)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -308,7 +311,7 @@ awaits Pi validation; later Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (not started; planned 0.5.5)
+### Phase 11D — reservation detail and price history (not started; planned 0.5.6)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,

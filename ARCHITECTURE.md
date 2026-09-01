@@ -434,9 +434,20 @@ text, and must pass automatic plus manual privacy review before any fixture move
 Migration 6 adds the non-sensitive `diagnostic_phase` column. Stable values identify
 `page_navigation`, `page_state_detection`, `offer_collection`, or `exact_match` without storing
 selectors or HTML. Ordinary Czech UI shows only approved Czech safe details; sanitized library
-text is confined to closed technical diagnostics. Production validation for 0.5.2 is pending.
-Reservation overview, images, and expanded detail/history are deferred respectively to 0.5.3,
-0.5.4, and 0.5.5.
+text is confined to closed technical diagnostics.
+
+Version 0.5.3 also resolves the follow-on navigation and scheduler root causes: 0.5.2 navigated
+only the canonical hotel URL, leaving dates and occupancy dependent on cookies and profile state;
+the scheduler could decide a check was due, wait behind a manual check, and then write a stale
+second history row. Every check now builds its exact availability URL from stored facts, while the
+scheduler skips a busy runner and revalidates `next_check_at` inside the lock before history
+creation. Completed logs retain only safe trigger and start-time evidence. Exact matching and
+non-comparable/`PRICE_DROP` protections remain unchanged.
+
+Local live validation recorded one exact comparable STORHAUGEN offer at 1250 NOK against 1138.39
+NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar Dikrayat safely returned
+`no_comparable_offer`. Reservation overview, images, and expanded detail/history are deferred
+respectively to 0.5.4, 0.5.5, and 0.5.6.
 
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every

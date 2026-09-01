@@ -5,8 +5,8 @@ State is persisted only in `/data`: SQLite, logs, and the Booking browser profil
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
 — is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
 The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED**.
-Parser reliability 0.5.2 is **IMPLEMENTATION COMPLETE, PRODUCTION VALIDATION PENDING**.
-Phase 11B is planned for 0.5.3, Phase 11C for 0.5.4, and Phase 11D for 0.5.5.
+Parser/navigation reliability 0.5.3 is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**.
+Phase 11B is planned for 0.5.4, Phase 11C for 0.5.5, and Phase 11D for 0.5.6.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
@@ -25,18 +25,23 @@ per text read, return no evidence when absent, and catch only expected Playwrigh
 timeouts. Real navigation timeouts remain distinct. Partial snapshots continue through later
 candidates; mandatory missing offer structure is `parser_error`, and matcher rejection is
 `no_comparable_offer`. Migration 6 persists only a stable safe diagnostic phase. Raw English
-library detail is hidden outside closed technical diagnostics. Production validation of 0.5.2 is
-pending with the STORHAUGEN procedure documented in the root README.
+library detail is hidden outside closed technical diagnostics. The subsequent 0.5.3 release
+validation procedure is documented in the root README.
 
 Local live validation later confirmed that supported legacy offers and an exact match continue
 through the production pipeline. The remaining failure was navigation nondeterminism: production
 passed the stored bare canonical URL directly, so dates and occupancy depended on browser cookies
 and previous-search state, and Booking could also temporarily return no availability surface after
-`domcontentloaded`. The unreleased fix builds one search URL from stored reservation facts for every
+`domcontentloaded`. Version `0.5.3` builds one search URL from stored reservation facts for every
 manual or scheduled check, keeps the canonical database value unchanged, waits boundedly for
-availability, and permits one bounded repeat navigation. The safe local
-`inspect → capture → replay → check` workflow is documented in the root README; its profile, real
-config, and captures never enter the add-on or Git.
+availability, and permits one bounded repeat navigation. It also skips a busy scheduler run and
+revalidates its due state after lock acquisition, so a manual check cannot create a stale second
+history row. Completed logs contain only safe `trigger` and `started_at` source evidence. The safe
+local `inspect → capture → replay → check` workflow is documented in the root README; its profile,
+real config, and captures never enter the add-on or Git. Live validation yielded STORHAUGEN
+`success`/`exact_match` at 1250 NOK against 1138.39 NOK with no `PRICE_DROP`; Papaya Hostel,
+Atlas Haven, and Dar Dikrayat safely returned `no_comparable_offer` without a false comparison or
+alert.
 
 Version `0.5.1` adds the CSRF-protected, Ingress-aware `Zkontrolovat nyní` action. It uses the
 same non-overlapping shared runner, persistent browser context, exact matcher, schedule state,
