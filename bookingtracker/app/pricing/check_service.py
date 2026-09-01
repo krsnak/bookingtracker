@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from app.booking.models import ParseStatus
+from app.booking.navigation import BookingSearchUrlError, build_booking_search_url
 from app.booking.parser import BookingRateParser
 from app.browser.models import NavigationStatus
 from app.db.repository import PriceCheckRepository
@@ -61,7 +62,21 @@ class PriceCheckService:
                 [],
             )
         try:
-            navigation = self.browser.navigate(reservation.booking_url)
+            navigation_url = build_booking_search_url(reservation.booking_url, reservation)
+        except BookingSearchUrlError as error:
+            return self._persist(
+                PriceCheckRecord(
+                    reservation_id=reservation.id,
+                    checked_at=started_at,
+                    started_at=started_at,
+                    run_id=run_id or "explicit-check",
+                    status=PriceCheckStatus.NAVIGATION_ERROR,
+                    error=str(error),
+                ),
+                [],
+            )
+        try:
+            navigation = self.browser.navigate(navigation_url)
         except Exception as error:
             return self._persist(
                 PriceCheckRecord(

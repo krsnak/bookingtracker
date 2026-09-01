@@ -267,7 +267,12 @@ class BookingRateParser:
     def _taxes_included(value: str | None) -> bool | None:
         if not value:
             return None
-        if text_contains(value, "taxes and fees included", "včetně daní a poplatků"):
+        if text_contains(
+            value,
+            "taxes and fees included",
+            "včetně daní a poplatků",
+            "zahrnuje daně a poplatky",
+        ):
             return True
         if text_contains(value, "taxes and fees excluded", "bez daní a poplatků"):
             return False

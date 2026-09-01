@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import platform
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime
-import platform
 from threading import RLock
-from typing import Callable
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from app.booking.selectors import BookingSelectors
 from app.browser.models import (
     AuthenticationState,
     BrowserHealth,
@@ -130,6 +131,18 @@ class BookingBrowserService:
                     return self._result(url, NavigationStatus.CAPTCHA_REQUIRED, page)
                 if self._state in {BrowserState.LOGGED_OUT, BrowserState.LOGIN_REQUIRED}:
                     return self._result(url, NavigationStatus.LOGIN_REQUIRED, page)
+                if not self._wait_for_availability_surface(page):
+                    page.goto(  # type: ignore[attr-defined]
+                        url,
+                        wait_until="domcontentloaded",
+                        timeout=self._settings.navigation_timeout_ms,
+                    )
+                    self._refresh_page_state(page)
+                    if self._state is BrowserState.CAPTCHA_REQUIRED:
+                        return self._result(url, NavigationStatus.CAPTCHA_REQUIRED, page)
+                    if self._state in {BrowserState.LOGGED_OUT, BrowserState.LOGIN_REQUIRED}:
+                        return self._result(url, NavigationStatus.LOGIN_REQUIRED, page)
+                    self._wait_for_availability_surface(page)
                 self._last_successful_navigation = datetime.now()
                 self._state = BrowserState.READY
                 return self._result(url, NavigationStatus.SUCCESS, page)
@@ -144,6 +157,27 @@ class BookingBrowserService:
                     self._state = BrowserState.ERROR
                     self._context_active = False
                 return self._result(url, status, error=message)
+
+    def _wait_for_availability_surface(self, page: object) -> bool:
+        """Bound the async Booking render race without classifying absence as navigation failure."""
+        selector = ", ".join(
+            (
+                BookingSelectors.AVAILABILITY,
+                BookingSelectors.NO_AVAILABILITY,
+                BookingSelectors.ROOM,
+                BookingSelectors.LEGACY_RATE,
+            )
+        )
+        try:
+            page.wait_for_selector(  # type: ignore[attr-defined]
+                selector,
+                state="attached",
+                timeout=self._settings.availability_timeout_ms,
+            )
+            return True
+        except PlaywrightTimeoutError:
+            # The parser remains authoritative for unsupported structures.
+            return False
 
     def is_logged_in(self) -> AuthenticationState:
         with self._lock:

@@ -48,6 +48,8 @@ class FakePage:
         self.selector_counts: dict[str, int] = {}
         self.goto_error: Exception | None = None
         self.goto_calls: list[str] = []
+        self.wait_for_selector_calls: list[tuple[str, str, int]] = []
+        self.wait_for_selector_error: Exception | None = None
         self.active_navigations = 0
         self.max_active_navigations = 0
 
@@ -72,6 +74,11 @@ class FakePage:
         return (
             "BookingTracker browser smoke" if self.url.startswith("data:") else "Booking test page"
         )
+
+    def wait_for_selector(self, selector: str, *, state: str, timeout: int) -> None:
+        self.wait_for_selector_calls.append((selector, state, timeout))
+        if self.wait_for_selector_error:
+            raise self.wait_for_selector_error
 
     def evaluate(self, _: str) -> str:
         return "Fake Chromium"
@@ -200,6 +207,36 @@ def test_optional_page_state_locator_timeout_does_not_become_navigation_timeout(
     result = service.navigate("https://www.booking.com/hotel/example")
 
     assert result.status is NavigationStatus.SUCCESS
+
+
+def test_navigation_waits_boundedly_for_async_availability_surface(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.SUCCESS
+    selector, state, timeout = page.wait_for_selector_calls[-1]
+    assert 'tr.js-rt-block-row' in selector
+    assert '[data-testid="availability-table"]' in selector
+    assert state == "attached"
+    assert timeout == 10_000
+
+
+def test_missing_availability_surface_remains_parser_responsibility(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.SUCCESS
+    assert len(page.goto_calls) == 2
+    assert len(page.wait_for_selector_calls) == 2
 
 
 def test_challenge_selector_survives_optional_body_text_timeout(tmp_path: Path) -> None:

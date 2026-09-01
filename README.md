@@ -108,6 +108,25 @@ cookie, token, HTML, traceback, or local path. Reload the detail to confirm pers
 or non-comparable result must not show a price delta or create `PRICE_DROP`; login/CAPTCHA must
 request manual recovery through the existing protected remote session before retrying.
 
+### Local live parser laboratory
+
+The ignored `scripts/debug_live_booking.local.json` contains only non-secret reservation search
+facts; copy its schema from `scripts/debug_live_booking.example.json`. The headed Mac profile is
+stored outside Git under `~/Library/Application Support/BookingTrackerDebug`, and sanitized
+captures default to a separate directory beside it. Run from `bookingtracker/`:
+
+```bash
+../.venv/bin/python scripts/debug_live_booking.py inspect --config scripts/debug_live_booking.local.json
+../.venv/bin/python scripts/debug_live_booking.py capture --config scripts/debug_live_booking.local.json
+../.venv/bin/python scripts/debug_live_booking.py replay --config scripts/debug_live_booking.local.json --capture /path/to/sanitized.booking-capture.html
+../.venv/bin/python scripts/debug_live_booking.py check --config scripts/debug_live_booking.local.json
+```
+
+`check` invokes the real `CheckRunner`, `PriceCheckService`, matcher, and price comparison with
+volatile repositories and a no-delivery alert boundary. It never opens the production database or
+changes the scheduler. A capture must pass the automatic privacy audit and manual review before it
+can be considered for a committed fixture.
+
 ## Home Assistant production verification
 
 Add-on versions `0.1.6` and `0.2.4` were verified on a Raspberry Pi 4 running

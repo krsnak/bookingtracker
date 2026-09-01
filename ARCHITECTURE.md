@@ -414,6 +414,23 @@ already-existing one-shot HTML snapshot remains the input to deterministic offer
 partial snapshot with valid later candidates continues to exact matching, while absent mandatory
 offer structure becomes `parser_error` and rejected candidates become `no_comparable_offer`.
 
+Subsequent local validation isolated a second production navigation defect.
+Imports correctly persist only a canonical hotel URL, but checks previously navigated that bare
+URL and therefore let Booking cookies, locale, and previous-search state choose the effective
+dates and occupancy. `PriceCheckService` now calls one Booking search-URL builder immediately
+before navigation. It strips every old query/fragment and adds only stored dates, adults, known
+children and ages, rooms, and optional currency; the canonical database value remains unchanged.
+Incomplete required search facts fail conservatively. Because Booking availability rows render
+asynchronously and an otherwise identical request sometimes temporarily returns no availability
+surface, the browser waits for a known availability/no-availability root and performs at most one
+bounded repeat navigation before the unchanged parser receives its snapshot.
+
+The Mac-only live laboratory uses the same production parser, matcher, `PriceCheckService`, and
+`CheckRunner`, but injects volatile history/schedule repositories and a no-delivery alert boundary.
+Its persistent Chromium profile and captures live outside Git. Capture retains only the narrow
+availability subtree, strips active/form content and non-whitelisted attributes, redacts sensitive
+text, and must pass automatic plus manual privacy review before any fixture move.
+
 Migration 6 adds the non-sensitive `diagnostic_phase` column. Stable values identify
 `page_navigation`, `page_state_detection`, `offer_collection`, or `exact_match` without storing
 selectors or HTML. Ordinary Czech UI shows only approved Czech safe details; sanitized library

@@ -25,8 +25,10 @@ class FakePage:
 class FakeBrowser:
     def __init__(self, status: NavigationStatus) -> None:
         self.status = status
+        self.last_url: str | None = None
 
     def navigate(self, url: str) -> NavigationResult:
+        self.last_url = url
         return NavigationResult(
             requested_url=url,
             final_url=url,
@@ -60,7 +62,9 @@ class FakeParser:
 def service(tmp_path, navigation: NavigationStatus, parsed: ParseResult):  # noqa: ANN001
     database = SQLiteDatabase(tmp_path / "checks.db")
     reservation_repository = ReservationRepository(database)
-    stored = reservation_repository.create(reservation(booking_url="https://example.test"))
+    stored = reservation_repository.create(
+        reservation(booking_url="https://www.booking.com/hotel/test/example.html")
+    )
     history = PriceCheckRepository(database)
     return (
         PriceCheckService(
@@ -90,6 +94,26 @@ def test_success_is_persisted_with_comparable_price(tmp_path) -> None:  # noqa: 
     assert result.status is PriceCheckStatus.SUCCESS
     assert result.comparison is not None
     assert history.latest_comparable(stored.id).comparison.delta_amount == Decimal("-2.00")  # type: ignore[union-attr]
+
+
+def test_price_check_service_builds_search_url_without_mutating_canonical_url(tmp_path) -> None:  # noqa: ANN001,E501
+    checked, stored, _ = service(
+        tmp_path,
+        NavigationStatus.SUCCESS,
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            offers=[rate(current_price=Decimal("16.88"), taxes_included=True)],
+        ),
+    )
+
+    checked.check(stored)
+
+    assert checked.browser.last_url == (  # type: ignore[attr-defined]
+        "https://www.booking.com/hotel/test/example.html?"
+        "checkin=2026-09-18&checkout=2026-09-19&group_adults=2&"
+        "group_children=0&no_rooms=1&selected_currency=EUR"
+    )
+    assert stored.booking_url == "https://www.booking.com/hotel/test/example.html"
 
 
 def test_no_match_ambiguous_and_failures_are_persisted_without_prices(tmp_path) -> None:  # noqa: ANN001
@@ -173,7 +197,7 @@ def test_storhaugen_partial_snapshot_selects_later_exact_offer(tmp_path) -> None
             room_type="Standard Double Room",
             booked_total_price=Decimal("1500"),
             currency="NOK",
-            booking_url="https://example.test/hotel",
+            booking_url="https://www.booking.com/hotel/xx/example.html",
         )
     )
     history = PriceCheckRepository(database)
@@ -234,7 +258,7 @@ def test_snapshot_no_exact_offer_and_missing_required_structure_are_distinct(
                 room_type=room_type,
                 booked_total_price=Decimal("1500"),
                 currency="NOK",
-                booking_url="https://example.test/hotel",
+                booking_url="https://www.booking.com/hotel/xx/example.html",
             )
         )
         history = PriceCheckRepository(database)

@@ -11,5 +11,6 @@
   "meal_plan": null,
   "breakfast": true,
   "cancellation_required": true,
-  "currency": "EUR"
+  "currency": "EUR",
+  "booked_total_price": "100.00"
 }

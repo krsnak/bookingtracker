@@ -34,6 +34,7 @@ class BrowserSettings:
     channel: str | None = "chrome"
     headless: bool = False
     navigation_timeout_ms: int = 60_000
+    availability_timeout_ms: int = 10_000
     executable_path: Path | None = None
     launch_args: tuple[str, ...] = ()
     launch_environment: tuple[tuple[str, str], ...] = ()

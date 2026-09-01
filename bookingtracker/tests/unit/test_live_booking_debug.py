@@ -193,16 +193,7 @@ def test_production_check_runner_dry_run_has_no_database_scheduler_or_alert_side
     assert result["production_database_opened"] is False
     assert result["scheduler_repository_written"] is False
     assert result["alerts_delivered"] == 0
+    assert result["price_drop_eligible"] is False
     assert result["alert_process_calls"] == 1
     assert result["comparison"]["comparable"] is False
     assert result["comparison"]["warnings"] == ["booked final total is unknown"]
-
-
-def test_production_check_can_reproduce_stored_canonical_url_without_search_query() -> None:
-    browser = _SnapshotBrowser((FIXTURES / "booking_papaya_rates.html").read_text())
-    live_config = config(property_name="Papaya Hostel")
-
-    run_production_check(browser, live_config, navigation_url=live_config.hotel_url)
-
-    assert browser.page.url == "https://www.booking.com/hotel/xx/example.html"
-    assert "checkin=" not in browser.page.url

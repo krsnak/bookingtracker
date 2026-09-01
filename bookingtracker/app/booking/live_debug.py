@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.alerts.service import AlertService
 from app.booking.models import ParseResult, ParseStatus, RateOffer
+from app.booking.navigation import build_booking_search_url
 from app.booking.parser import BookingRateParser
 from app.booking.selectors import BookingSelectors
 from app.matching.matcher import ExactReservationMatcher
@@ -40,6 +43,7 @@ class LiveBookingConfig(BaseModel):
     breakfast: bool | None
     cancellation_required: bool | None
     currency: str = Field(min_length=3, max_length=3)
+    booked_total_price: Decimal | None = Field(default=None, ge=0)
 
     @field_validator("hotel_url")
     @classmethod
@@ -68,22 +72,12 @@ class LiveBookingConfig(BaseModel):
         return self
 
     def navigation_url(self) -> str:
-        query: list[tuple[str, str]] = [
-            ("checkin", self.check_in.isoformat()),
-            ("checkout", self.check_out.isoformat()),
-            ("group_adults", str(self.adults)),
-            ("group_children", str(self.children)),
-            ("no_rooms", str(self.rooms)),
-            ("selected_currency", self.currency),
-        ]
-        query.extend(("age", str(age)) for age in self.children_ages)
-        parsed = urlsplit(self.hotel_url)
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), ""))
+        return build_booking_search_url(self.hotel_url, self.reservation())
 
     def reservation(self) -> Reservation:
         return Reservation(
             property_name=self.property_name,
-            booking_url=self.navigation_url(),
+            booking_url=self.hotel_url,
             check_in=self.check_in,
             check_out=self.check_out,
             nights=(self.check_out - self.check_in).days,
@@ -95,6 +89,7 @@ class LiveBookingConfig(BaseModel):
             meal_plan=self.meal_plan,
             breakfast_included=self.breakfast,
             free_cancellation=self.cancellation_required,
+            booked_total_price=self.booked_total_price,
             currency=self.currency,
             source_text="local live debug configuration",
             extraction_confidence=1,
@@ -258,16 +253,9 @@ class NullAlertService:
         self.process_calls += 1
 
 
-def run_production_check(
-    browser: object,
-    config: LiveBookingConfig,
-    *,
-    navigation_url: str | None = None,
-) -> dict[str, object]:
+def run_production_check(browser: object, config: LiveBookingConfig) -> dict[str, object]:
     """Run the real CheckRunner pipeline with volatile persistence and no alert side effects."""
-    reservation = config.reservation().model_copy(
-        update={"active": True, "booking_url": navigation_url or config.navigation_url()}
-    )
+    reservation = config.reservation().model_copy(update={"active": True})
     history = VolatileCheckHistory()
     alerts = NullAlertService()
     runner = CheckRunner(
@@ -292,6 +280,7 @@ def run_production_check(
         "record": record,
         "candidate_count": len(history.offers),
         "alerts_delivered": 0,
+        "price_drop_eligible": AlertService._is_price_drop(record),
         "alert_process_calls": alerts.process_calls,
         "production_database_opened": False,
         "scheduler_repository_written": False,
@@ -306,6 +295,12 @@ def run_production_check(
             if comparison.current_price is not None
             else None,
             "currency": comparison.currency,
+            "delta_amount": str(comparison.delta_amount)
+            if comparison.delta_amount is not None
+            else None,
+            "delta_percent": str(comparison.delta_percent)
+            if comparison.delta_percent is not None
+            else None,
             "warnings": comparison.warnings,
         }
         if comparison

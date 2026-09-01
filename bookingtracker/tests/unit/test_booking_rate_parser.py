@@ -109,7 +109,7 @@ def test_legacy_booking_rate_row_fallback_is_scoped_and_explicit() -> None:
     assert offer.currency == "CZK"
     assert offer.breakfast_included is True
     assert offer.free_cancellation is True
-    assert offer.taxes_included is None
+    assert offer.taxes_included is True
     assert offer.evidence["rate_selector"] == "tr.js-rt-block-row"
 
 

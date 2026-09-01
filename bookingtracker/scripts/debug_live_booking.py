@@ -179,11 +179,7 @@ def _run_check(args: argparse.Namespace) -> int:
         timings["browser_start_ms"] = elapsed_ms(started)
         if not health.context_running:
             raise RuntimeError("headed Chromium could not be started")
-        result = run_production_check(
-            _ObservedBrowser(service),
-            config,
-            navigation_url=config.hotel_url if args.canonical_url_only else None,
-        )
+        result = run_production_check(_ObservedBrowser(service), config)
         record = result.pop("record")
         page = service.current_page()
         if page is None:
@@ -300,8 +296,6 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--config", type=Path, required=True)
         if name == "capture":
             command.add_argument("--output", type=Path)
-        if name == "check":
-            command.add_argument("--canonical-url-only", action="store_true")
     replay = commands.add_parser("replay")
     replay.add_argument("--config", type=Path, required=True)
     replay.add_argument("--capture", type=Path, required=True)

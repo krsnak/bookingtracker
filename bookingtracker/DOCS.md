@@ -28,6 +28,16 @@ candidates; mandatory missing offer structure is `parser_error`, and matcher rej
 library detail is hidden outside closed technical diagnostics. Production validation of 0.5.2 is
 pending with the STORHAUGEN procedure documented in the root README.
 
+Local live validation later confirmed that supported legacy offers and an exact match continue
+through the production pipeline. The remaining failure was navigation nondeterminism: production
+passed the stored bare canonical URL directly, so dates and occupancy depended on browser cookies
+and previous-search state, and Booking could also temporarily return no availability surface after
+`domcontentloaded`. The unreleased fix builds one search URL from stored reservation facts for every
+manual or scheduled check, keeps the canonical database value unchanged, waits boundedly for
+availability, and permits one bounded repeat navigation. The safe local
+`inspect → capture → replay → check` workflow is documented in the root README; its profile, real
+config, and captures never enter the add-on or Git.
+
 Version `0.5.1` adds the CSRF-protected, Ingress-aware `Zkontrolovat nyní` action. It uses the
 same non-overlapping shared runner, persistent browser context, exact matcher, schedule state,
 history, alert rules, and deduplication as the scheduler. Completed manual and scheduled checks

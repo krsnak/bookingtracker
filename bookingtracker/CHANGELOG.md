@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Build every manual and scheduled Booking navigation URL deterministically from the stored
+  canonical hotel URL, dates, occupancy, rooms, known child ages, and optional currency without
+  mutating the canonical database value.
+- Wait boundedly for asynchronous availability content and retry navigation once when Booking
+  temporarily returns neither an availability nor no-availability surface.
+- Recognize the explicit Czech final-price evidence `Zahrnuje daně a poplatky` and add a local
+  production-`CheckRunner` dry-run laboratory with sanitized capture/replay and no persistent or
+  alert side effects.
+
 ## 0.5.2
 
 - Fixed the 0.5.1 production root cause where an optional one-second Playwright
