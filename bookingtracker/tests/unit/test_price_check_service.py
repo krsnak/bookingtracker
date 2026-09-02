@@ -11,6 +11,7 @@ from app.browser.models import AuthenticationState, NavigationResult, Navigation
 from app.db.connection import SQLiteDatabase
 from app.db.repository import AlertRepository, PriceCheckRepository, ReservationRepository
 from app.matching.matcher import ExactReservationMatcher
+from app.matching.models import MatchClassification
 from app.pricing.check_service import PriceCheckService
 from app.pricing.models import CheckDiagnosticPhase, CheckReasonCode, PriceCheckStatus
 from app.pricing.service import ComparablePriceService
@@ -108,6 +109,25 @@ def test_success_is_persisted_with_comparable_price(tmp_path) -> None:  # noqa: 
     assert history.latest_comparable(stored.id).comparison.delta_amount == Decimal("-2.00")  # type: ignore[union-attr]
 
 
+def test_lowest_accepted_category_is_persisted_for_pricing_and_alerts(tmp_path) -> None:  # noqa: ANN001
+    exact = rate(room_name="Economy Triple Room without Balcony", current_price=Decimal("18"))
+    better = rate(room_name="Classic Triple Room with Balcony", current_price=Decimal("16"))
+    checked, stored, history = service(
+        tmp_path,
+        NavigationStatus.SUCCESS,
+        ParseResult(status=ParseStatus.SUCCESS, offers=[exact, better]),
+    )
+    stored = stored.model_copy(update={"room_type": "Economy Triple Room without Balcony"})
+
+    result = checked.check(stored)
+    persisted = history.latest(stored.id)
+
+    assert result.status is PriceCheckStatus.SUCCESS
+    assert result.match_classification is MatchClassification.BETTER
+    assert result.comparison.current_price == Decimal("16")  # type: ignore[union-attr]
+    assert persisted.match_classification is MatchClassification.BETTER  # type: ignore[union-attr]
+
+
 def test_price_check_service_builds_search_url_without_mutating_canonical_url(tmp_path) -> None:  # noqa: ANN001,E501
     checked, stored, _ = service(
         tmp_path,
@@ -176,7 +196,7 @@ def test_no_match_ambiguous_and_failures_are_persisted_without_prices(tmp_path) 
         (
             NavigationStatus.SUCCESS,
             ParseResult(status=ParseStatus.SUCCESS, offers=[rate(breakfast_included=None)]),
-            PriceCheckStatus.AMBIGUOUS,
+            PriceCheckStatus.NO_MATCH,
         ),
         (
             NavigationStatus.LOGIN_REQUIRED,
@@ -235,9 +255,7 @@ def test_failed_check_cannot_carry_a_previous_successful_price(tmp_path) -> None
 
 def test_storhaugen_partial_snapshot_selects_later_exact_offer(tmp_path) -> None:  # noqa: ANN001
     html = (
-        Path(__file__).parents[1]
-        / "fixtures"
-        / "booking_storhaugen_optional_missing.html"
+        Path(__file__).parents[1] / "fixtures" / "booking_storhaugen_optional_missing.html"
     ).read_text()
     database = SQLiteDatabase(tmp_path / "storhaugen.db")
     reservations = ReservationRepository(database)
@@ -272,9 +290,7 @@ def test_snapshot_no_exact_offer_and_missing_required_structure_are_distinct(
     tmp_path,
 ) -> None:  # noqa: ANN001
     fixture = (
-        Path(__file__).parents[1]
-        / "fixtures"
-        / "booking_storhaugen_optional_missing.html"
+        Path(__file__).parents[1] / "fixtures" / "booking_storhaugen_optional_missing.html"
     ).read_text()
 
     class NullNotifier:
@@ -333,6 +349,4 @@ def test_snapshot_no_exact_offer_and_missing_required_structure_are_distinct(
         results.append(result)
 
     assert results[0].safe_error_detail == "Nebyla nalezena bezpečně porovnatelná nabídka."
-    assert results[1].safe_error_detail == (
-        "Povinná struktura cenové nabídky nebyla rozpoznána."
-    )
+    assert results[1].safe_error_detail == ("Povinná struktura cenové nabídky nebyla rozpoznána.")

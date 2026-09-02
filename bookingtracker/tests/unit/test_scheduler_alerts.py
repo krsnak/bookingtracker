@@ -113,6 +113,26 @@ def test_papaya_alert_deduplication_and_historical_low(tmp_path) -> None:  # noq
     assert notifier.delivered.count(AlertType.PRICE_DROP) == 2
 
 
+def test_price_drop_alert_names_exact_equivalent_and_better_match_categories(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "category-alerts.db")
+    stored = ReservationRepository(database).create(reservation())
+    history = PriceCheckRepository(database)
+    alerts = AlertRepository(database)
+    service = AlertService(alerts, history, RecordingNotifier(), failure_threshold=3)
+    messages = []
+    for classification, expected in (
+        (MatchClassification.EXACT, "stejného pokoje"),
+        (MatchClassification.EQUIVALENT, "ekvivalentního pokoje"),
+        (MatchClassification.BETTER, "prokazatelně lepšího pokoje"),
+    ):
+        check = comparable_check(stored.id, "16.00").model_copy(
+            update={"match_classification": classification}
+        )
+        check = history.create(check, [])
+        messages.append(service._price_drop_message(check, stored))
+        assert expected in messages[-1]
+
+
 def test_login_captcha_and_repeated_failure_alerts_are_deduplicated(tmp_path) -> None:  # noqa: ANN001
     database = SQLiteDatabase(tmp_path / "alerts.db")
     stored = ReservationRepository(database).create(reservation())
@@ -191,9 +211,7 @@ def test_czech_check_failed_payload_contains_property_reason_count_and_next_atte
         transport=lambda path, payload: payloads.append((path, payload)),
     )
     database = SQLiteDatabase(tmp_path / "czech-alert.db")
-    stored = ReservationRepository(database).create(
-        reservation(property_name="STORHAUGEN GARD")
-    )
+    stored = ReservationRepository(database).create(reservation(property_name="STORHAUGEN GARD"))
     history = PriceCheckRepository(database)
     alerts = AlertRepository(database)
     service = AlertService(alerts, history, adapter, failure_threshold=3)

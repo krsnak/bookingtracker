@@ -17,6 +17,22 @@ class ParseStatus(StrEnum):
     ERROR = "error"
 
 
+class RoomFacts(BaseModel):
+    """Only explicit, objective room facts; ``None`` means no evidence."""
+
+    accommodation_kind: str | None = None  # ``private_room`` or ``dorm_bed``
+    room_capacity: int | None = Field(default=None, ge=1)
+    private_bathroom: bool | None = None
+    balcony: bool | None = None
+    terrace: bool | None = None
+    area_sqm: Decimal | None = Field(default=None, gt=0)
+    view: str | None = None
+    air_conditioning: bool | None = None
+    kitchen: bool | None = None
+    accessible: bool | None = None
+    bed_types: list[str] = Field(default_factory=list)
+
+
 class RateOffer(BaseModel):
     property_name: str | None = None
     room_name: str
@@ -24,6 +40,7 @@ class RateOffer(BaseModel):
     adults: int | None = Field(default=None, ge=1)
     children: int | None = Field(default=None, ge=0)
     occupancy_text: str | None = None
+    room_facts: RoomFacts = Field(default_factory=RoomFacts)
     meal_plan: str | None = None
     breakfast_included: bool | None = None
     breakfast_genius_benefit: bool | None = None

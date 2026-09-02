@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Keep `exact` separate while accepting a differently named room only as explicit
+  `equivalent` or objectively `better`; a lower price never relaxes a room or rate condition.
+- Persist structured public room facts with offer snapshots and safe matcher evidence: private
+  room/dorm bed, bathroom, balcony/terrace, area, view, air conditioning, kitchen,
+  accessibility, bed type and capacity. Marketing labels are not upgrade evidence.
+- Require confirmed property, requested occupancy, final tax-inclusive total/currency, meal,
+  cancellation, payment and every known booked room feature. Missing or worse evidence is
+  non-comparable; no benefit compensates for a downgrade.
+- Select the lowest total among all same-currency, tax-inclusive, individually safe candidates;
+  exact/equivalent/better only break an equal-price tie, otherwise retain an ambiguous result for
+  non-orderable terms. Alerts and detail UI name the category and
+  show safe objective evidence. No schema migration or historical rewrite is required.
+- Papaya validation remains conservative: a dorm bed is rejected and Economy/Classic wording
+  alone cannot replace the booked balcony room.
+
 ## 0.5.4
 
 - Treat a reliably recognized adults-only confirmation block as zero children while retaining

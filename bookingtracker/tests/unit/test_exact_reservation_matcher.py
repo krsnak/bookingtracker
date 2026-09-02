@@ -4,7 +4,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from app.booking.models import RateOffer
 from app.booking.parser import BookingRateParser
+from app.booking.room_facts import extract_room_facts
 from app.matching.matcher import ExactReservationMatcher
 from app.matching.models import MatchClassification
 from app.reservations.models import Reservation
@@ -48,11 +50,14 @@ def rate(**overrides: object):
         "currency": "EUR",
         "free_cancellation": True,
         "non_refundable": False,
+        "taxes_included": True,
         "source_row_text": "sanitized rate",
         "source_url": "https://example.test",
         "scrape_timestamp": datetime(2026, 8, 1),
     }
     fields.update(overrides)
+    if "room_facts" not in overrides:
+        fields["room_facts"] = extract_room_facts(str(fields["room_name"]))
     return RateOffer(**fields)
 
 
@@ -66,19 +71,22 @@ def test_exact_match_accepts_same_conditions() -> None:
 
 def test_equivalent_wording_is_accepted() -> None:
     result = MATCHER.match(
-        reservation(room_type="Budget double room with double bed", breakfast_included=None),
-        [rate(room_name="Budget Double Room", normalized_room_name="budget double room")],
+        reservation(room_type="Classic Triple Room with Balcony", breakfast_included=None),
+        [rate(room_name="Economy Triple Room with Balcony")],
     )
 
     assert result.accepted
     assert result.classification is MatchClassification.EQUIVALENT
 
 
-def test_wrong_room_is_not_accepted_as_exact() -> None:
-    result = MATCHER.match(reservation(), [rate(room_name="Triple Room with Balcony")])
+def test_marketing_word_does_not_create_better_room() -> None:
+    result = MATCHER.match(
+        reservation(room_type="Classic Triple Room", breakfast_included=None),
+        [rate(room_name="Deluxe Triple Room")],
+    )
 
-    assert not result.accepted
-    assert result.candidate_evaluations[0].classification is MatchClassification.UPGRADE_CANDIDATE
+    assert result.accepted
+    assert result.classification is MatchClassification.EQUIVALENT
 
 
 def test_breakfast_downgrade_is_rejected() -> None:
@@ -115,23 +123,22 @@ def test_earlier_and_later_cancellation_deadlines_are_distinguished() -> None:
 
     assert earlier.candidate_evaluations[0].classification is MatchClassification.REJECTED
     assert later.accepted
-    assert later.classification is MatchClassification.BETTER
+    assert later.classification is MatchClassification.EXACT
 
 
-def test_unknown_candidate_breakfast_is_ambiguous() -> None:
+def test_missing_candidate_breakfast_is_rejected() -> None:
     result = MATCHER.match(reservation(), [rate(breakfast_included=None)])
 
     assert not result.accepted
-    assert result.candidate_evaluations[0].classification is MatchClassification.AMBIGUOUS
+    assert result.candidate_evaluations[0].classification is MatchClassification.REJECTED
 
 
-def test_insufficient_occupancy_is_rejected_and_unknown_is_ambiguous() -> None:
+def test_insufficient_or_unknown_occupancy_is_rejected() -> None:
     too_small = MATCHER.match(reservation(adults=2), [rate(adults=1)])
     unknown = MATCHER.match(reservation(adults=2), [rate(adults=None, occupancy_text=None)])
 
     assert too_small.candidate_evaluations[0].classification is MatchClassification.REJECTED
-    assert unknown.candidate_evaluations[0].classification is MatchClassification.AMBIGUOUS
-    assert "occupancy" in unknown.candidate_evaluations[0].warnings[0]
+    assert unknown.candidate_evaluations[0].classification is MatchClassification.REJECTED
 
 
 def test_all_candidates_are_evaluated_and_price_does_not_select_match() -> None:
@@ -160,12 +167,205 @@ def test_papaya_regression_refundable_genius_breakfast_beats_non_refundable_rate
     assert result.candidate_evaluations[1].classification is MatchClassification.REJECTED
 
 
-def test_known_worse_payment_terms_are_warned_without_price_logic() -> None:
+def test_known_worse_payment_terms_are_rejected() -> None:
     result = MATCHER.match(
         reservation(payment_conditions="Pay at property"),
         [rate(payment_conditions="Pay in advance")],
     )
 
+    assert not result.accepted
+    assert result.classification is MatchClassification.NO_MATCH
+
+
+def test_different_name_with_larger_documented_area_is_better() -> None:
+    result = MATCHER.match(
+        reservation(room_type="Classic Triple Room 18 m² with Balcony", breakfast_included=None),
+        [rate(room_name="Economy Triple Room 22 m² with Balcony")],
+    )
+
+    assert result.accepted
+    assert result.classification is MatchClassification.BETTER
+    assert "larger room area" in result.candidate_evaluations[0].objective_differences
+
+
+def test_private_bathroom_or_extra_balcony_is_better_only_with_full_evidence() -> None:
+    bathroom = MATCHER.match(
+        reservation(room_type="Classic Triple Room with Shared Bathroom", breakfast_included=None),
+        [rate(room_name="Economy Triple Room with Private Bathroom")],
+    )
+    balcony = MATCHER.match(
+        reservation(room_type="Classic Triple Room without Balcony", breakfast_included=None),
+        [rate(room_name="Economy Triple Room with Balcony")],
+    )
+
+    assert bathroom.classification is MatchClassification.BETTER
+    assert balcony.classification is MatchClassification.BETTER
+
+
+def test_missing_booked_balcony_or_view_is_not_comparable() -> None:
+    balcony = MATCHER.match(
+        reservation(room_type="Triple Room with Balcony", breakfast_included=None),
+        [rate(room_name="Classic Triple Room")],
+    )
+    view = MATCHER.match(
+        reservation(room_type="Triple Room with Sea View", breakfast_included=None),
+        [rate(room_name="Classic Triple Room")],
+    )
+
+    assert not balcony.accepted and balcony.classification is MatchClassification.NO_MATCH
+    assert not view.accepted and view.classification is MatchClassification.NO_MATCH
+
+
+def test_dorm_bed_and_worse_terms_are_never_compensated_by_room_size() -> None:
+    dorm = MATCHER.match(
+        reservation(room_type="Triple Room with Balcony", breakfast_included=None),
+        [rate(room_name="Bed in 4-Bed Dormitory Room with Balcony")],
+    )
+    cancellation = MATCHER.match(
+        reservation(room_type="Triple Room 18 m²", breakfast_included=None),
+        [rate(room_name="Classic Triple Room 22 m²", free_cancellation=False, non_refundable=True)],
+    )
+
+    assert not dorm.accepted
+    assert not cancellation.accepted
+
+
+def test_currency_and_capacity_difference_cannot_be_accepted_or_marked_better() -> None:
+    currency = MATCHER.match(
+        reservation(room_type="Triple Room", breakfast_included=None),
+        [rate(room_name="Classic Triple Room", currency="USD")],
+    )
+    capacity = MATCHER.match(
+        reservation(room_type="Double Room", breakfast_included=None),
+        [rate(room_name="Classic Triple Room")],
+    )
+
+    assert not currency.accepted
+    assert not capacity.accepted
+
+
+def test_same_category_identical_terms_selects_lowest_total_but_conflict_is_ambiguous() -> None:
+    selected = MATCHER.match(
+        reservation(), [rate(current_price=Decimal("22")), rate(current_price=Decimal("20"))]
+    )
+    ambiguous = MATCHER.match(
+        reservation(),
+        [
+            rate(current_price=Decimal("22")),
+            rate(current_price=Decimal("20"), cancellation_deadline=datetime(2026, 9, 11)),
+        ],
+    )
+
+    assert selected.accepted and selected.matched_rate.current_price == Decimal("20")
+    assert not ambiguous.accepted and ambiguous.classification is MatchClassification.AMBIGUOUS
+
+
+def _room_choice_reservation() -> Reservation:
+    return reservation(room_type="Economy Triple Room without Balcony")
+
+
+def _equivalent_choice_rate(price: str) -> RateOffer:
+    return rate(room_name="Classic Triple Room without Balcony", current_price=Decimal(price))
+
+
+def _better_choice_rate(price: str) -> RateOffer:
+    return rate(room_name="Classic Triple Room with Balcony", current_price=Decimal(price))
+
+
+def test_lowest_safe_total_can_select_better_over_more_expensive_exact() -> None:
+    result = MATCHER.match(
+        _room_choice_reservation(),
+        [
+            rate(room_name="Economy Triple Room without Balcony", current_price=Decimal("100")),
+            _better_choice_rate("80"),
+        ],
+    )
+
+    assert result.accepted
+    assert result.classification is MatchClassification.BETTER
+    assert result.matched_rate.current_price == Decimal("80")
+
+
+def test_lowest_safe_total_keeps_cheaper_exact_over_better_room() -> None:
+    result = MATCHER.match(
+        _room_choice_reservation(),
+        [
+            rate(room_name="Economy Triple Room without Balcony", current_price=Decimal("80")),
+            _better_choice_rate("100"),
+        ],
+    )
+
     assert result.accepted
     assert result.classification is MatchClassification.EXACT
-    assert "payment" in result.warnings[0]
+    assert result.matched_rate.current_price == Decimal("80")
+
+
+def test_lowest_safe_total_can_select_equivalent_over_more_expensive_better_room() -> None:
+    result = MATCHER.match(
+        _room_choice_reservation(), [_equivalent_choice_rate("70"), _better_choice_rate("80")]
+    )
+
+    assert result.accepted
+    assert result.classification is MatchClassification.EQUIVALENT
+    assert result.matched_rate.current_price == Decimal("70")
+
+
+def test_equal_totals_use_category_then_diagnostic_index() -> None:
+    all_categories = MATCHER.match(
+        _room_choice_reservation(),
+        [
+            _better_choice_rate("80"),
+            _equivalent_choice_rate("80"),
+            rate(room_name="Economy Triple Room without Balcony", current_price=Decimal("80")),
+        ],
+    )
+    no_exact = MATCHER.match(
+        _room_choice_reservation(), [_better_choice_rate("80"), _equivalent_choice_rate("80")]
+    )
+
+    assert all_categories.classification is MatchClassification.EXACT
+    assert all_categories.matched_evaluation.diagnostic_index == 3  # type: ignore[union-attr]
+    assert no_exact.classification is MatchClassification.EQUIVALENT
+    assert no_exact.matched_evaluation.diagnostic_index == 2  # type: ignore[union-attr]
+
+
+def test_cheaper_incomplete_or_worse_room_never_reaches_price_selection() -> None:
+    result = MATCHER.match(
+        _room_choice_reservation(),
+        [
+            rate(room_name="Economy Triple Room without Balcony", current_price=Decimal("100")),
+            rate(room_name="Classic Triple Room", current_price=Decimal("10")),
+            rate(
+                room_name="Classic Triple Room with Balcony",
+                current_price=Decimal("20"),
+                breakfast_included=None,
+            ),
+            rate(
+                room_name="Classic Triple Room with Balcony",
+                current_price=Decimal("30"),
+                free_cancellation=False,
+                non_refundable=True,
+            ),
+        ],
+    )
+
+    assert result.classification is MatchClassification.EXACT
+    assert result.matched_rate.current_price == Decimal("100")
+    assert [item.accepted for item in result.candidate_evaluations] == [True, False, False, False]
+
+
+def test_currency_or_non_orderable_terms_produce_no_price_selection() -> None:
+    currency = MATCHER.match(
+        _room_choice_reservation(),
+        [rate(room_name="Economy Triple Room without Balcony", currency="USD")],
+    )
+    terms = MATCHER.match(
+        _room_choice_reservation(),
+        [
+            rate(room_name="Economy Triple Room without Balcony", current_price=Decimal("100")),
+            _better_choice_rate("80").model_copy(update={"payment_conditions": "Pay later"}),
+        ],
+    )
+
+    assert not currency.accepted and currency.classification is MatchClassification.NO_MATCH
+    assert not terms.accepted and terms.classification is MatchClassification.AMBIGUOUS

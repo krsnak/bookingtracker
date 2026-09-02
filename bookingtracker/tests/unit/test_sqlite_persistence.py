@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -9,6 +10,7 @@ import pytest
 from app.db.connection import SQLiteDatabase
 from app.db.migrations import MIGRATIONS
 from app.db.repository import PriceCheckRepository, ReservationRepository
+from app.matching.models import CandidateEvaluation, MatchClassification, MatchResult
 from app.pricing.models import CheckDiagnosticPhase, PriceCheckRecord, PriceCheckStatus
 from test_exact_reservation_matcher import rate, reservation
 
@@ -179,3 +181,65 @@ def test_migration_six_preserves_version_051_database(tmp_path) -> None:  # noqa
     assert loaded.safe_error_detail == "safe legacy detail"
     assert loaded.consecutive_failure_count == 4
     assert loaded.diagnostic_phase is None
+
+
+def test_pre_room_facts_snapshot_and_match_result_remain_readable(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "pre-room-facts.db")
+    stored = ReservationRepository(database).create(reservation(active=True))
+    history = PriceCheckRepository(database)
+    offer = rate()
+    evaluation = CandidateEvaluation(
+        rate=offer,
+        accepted=True,
+        score=Decimal("1"),
+        classification=MatchClassification.EXACT,
+    )
+    match = MatchResult(
+        accepted=True,
+        score=Decimal("1"),
+        matched_rate=offer,
+        classification=MatchClassification.EXACT,
+        candidate_evaluations=[evaluation],
+    )
+    check = history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            status=PriceCheckStatus.SUCCESS,
+            matched=True,
+            match_classification=MatchClassification.EXACT,
+            match_result=match,
+        ),
+        [offer],
+    )
+    with database.transaction() as connection:
+        snapshot = json.loads(
+            connection.execute(
+                "SELECT offer_json FROM rate_offer_snapshots WHERE price_check_id = ?",
+                (str(check.id),),
+            ).fetchone()["offer_json"]
+        )
+        snapshot.pop("room_facts")
+        legacy_match = match.model_dump(mode="json")
+        legacy_match["matched_rate"].pop("room_facts")
+        legacy_match["candidate_evaluations"][0].pop("diagnostic_index")
+        legacy_match["candidate_evaluations"][0].pop("objective_differences")
+        legacy_match["candidate_evaluations"][0].pop("evidence")
+        legacy_match["candidate_evaluations"][0]["rate"].pop("room_facts")
+        connection.execute(
+            "UPDATE rate_offer_snapshots SET offer_json = ? WHERE price_check_id = ?",
+            (json.dumps(snapshot), str(check.id)),
+        )
+        connection.execute(
+            "UPDATE price_checks SET match_result_json = ? WHERE id = ?",
+            (json.dumps(legacy_match), str(check.id)),
+        )
+
+    loaded = history.latest(stored.id)
+
+    assert loaded is not None
+    assert loaded.rate_offers[0].room_facts.balcony is None
+    assert loaded.match_result is not None
+    assert loaded.match_result.classification is MatchClassification.EXACT
+    assert loaded.match_result.matched_evaluation is not None
+    assert loaded.match_result.matched_evaluation.evidence == []
+    assert loaded.match_result.matched_evaluation.objective_differences == []

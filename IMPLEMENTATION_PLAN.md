@@ -35,6 +35,15 @@ work preserves the existing parser/matcher contract: a completed `no_comparable_
 resets technical failure state, uses the normal schedule interval, and hides a superseded
 technical failure alert only on the current detail while preserving alert/history rows.
 
+The next unreleased matcher follow-up is evidence-first: an exact booked room remains preferred;
+a differently named room is accepted only as `equivalent` or `better` with explicit objective
+room and rate evidence. Marketing labels are never quality evidence, missing evidence is
+non-comparable, and a better fact cannot compensate for worse cancellation, food, payment,
+occupancy, currency, tax basis, or booked room feature. Papaya's existing live capture must remain
+`no_comparable_offer` unless its scoped DOM proves balcony and every required fact; its dorm-bed
+offer is always rejected. Among individually safe accepted candidates, the lowest full total wins;
+category priority applies only to an equal-price tie, and non-orderable terms stay ambiguous.
+
 | Scope | Status |
 | --- | --- |
 | Phases 0–10 | COMPLETE |

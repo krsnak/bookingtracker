@@ -7,6 +7,7 @@ from pathlib import Path
 from app.booking.models import ParseStatus
 from app.booking.normalization import parse_price
 from app.booking.parser import BookingRateParser
+from app.booking.room_facts import extract_room_facts
 from app.matching.matcher import ExactReservationMatcher
 from test_exact_reservation_matcher import reservation
 
@@ -133,3 +134,42 @@ def test_storhaugen_missing_optional_evidence_keeps_parsing_later_exact_offer() 
     )
     assert matched.accepted
     assert matched.matched_rate == result.offers[0]
+
+
+def test_room_facts_are_extracted_only_from_explicit_room_context() -> None:
+    html = """
+    <section data-testid="availability-table"><h1 data-testid="property-name">Safe Hotel</h1>
+      <article data-testid="room-row">
+        <h2 data-testid="room-name">Triple Room 22 m² with Balcony and Private Bathroom</h2>
+        <div data-testid="rate-option"><span data-testid="occupancy">2 adults</span>
+        <strong data-testid="current-price">EUR 20</strong>
+        <span data-testid="taxes">Taxes and fees included</span></div>
+      </article>
+      <article data-testid="room-row"><h2 data-testid="room-name">Bed in 4-Bed Dormitory Room</h2>
+        <div data-testid="rate-option"><span data-testid="occupancy">2 adults</span>
+        <strong data-testid="current-price">EUR 10</strong>
+        <span data-testid="taxes">Taxes and fees included</span></div>
+      </article>
+    </section>
+    """
+
+    result = PARSER.parse_html(html, source_url="https://example.test/hotel")
+
+    room, dorm = result.offers
+    assert room.room_facts.room_capacity == 3
+    assert room.room_facts.area_sqm == Decimal("22")
+    assert room.room_facts.balcony is True
+    assert room.room_facts.private_bathroom is True
+    assert dorm.room_facts.accommodation_kind == "dorm_bed"
+
+
+def test_room_fact_provenance_keeps_absence_unknown_and_explicit_negation_false() -> None:
+    unknown = extract_room_facts("Classic Triple Room")
+    negative = extract_room_facts("Classic Triple Room without Balcony")
+    positive = extract_room_facts("Classic Triple Room with Balcony and Private Bathroom")
+    shared = extract_room_facts("Classic Triple Room with Shared Bathroom")
+
+    assert unknown.balcony is None and unknown.private_bathroom is None
+    assert negative.balcony is False
+    assert positive.balcony is True and positive.private_bathroom is True
+    assert shared.private_bathroom is False

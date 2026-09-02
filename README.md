@@ -21,7 +21,19 @@ anchor, including PDF line breaks and Unicode names. Review uses a compact, isol
 stylesheet. Synthetic PDFs are created only in memory during tests; no real confirmation or
 personal data is committed.
 
-The next unreleased corrective change distinguishes a technically failed Booking check from a
+The next unreleased matcher follow-up retains the exact-room invariant while allowing a differently
+named room only when explicit Booking evidence proves it objectively equivalent or better. It
+never treats Economy, Classic, Superior, Deluxe, Premium, Executive, or Suite wording as quality
+evidence. A candidate must confirm property, requested occupancy, one-room availability, currency,
+tax-inclusive full-stay total, food, cancellation and payment protections; missing evidence is
+non-comparable. Explicit room facts (private room versus dorm bed, bathroom, balcony/terrace,
+area, view, air conditioning, kitchen, accessibility and bed type) cannot be lost. The deterministic
+lowest safe total across exact/equivalent/better wins; category order breaks an equal-price tie,
+while non-orderable terms are ambiguous. No migration is needed: structured match evidence is
+already retained in immutable match-result and offer-snapshot JSON. Papaya's dorm bed is rejected,
+and Economy/Classic names alone remain non-comparable unless the DOM proves all booked facts.
+
+The preceding corrective change distinguishes a technically failed Booking check from a
 valid completed check without a safely comparable offer. A reliably recognized guest block such
 as `2 adults` or `2 dospělí` now records zero children; an unclear or conflicting guest block
 remains unknown for review. Missing search facts stop before browser navigation as

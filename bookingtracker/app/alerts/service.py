@@ -93,6 +93,7 @@ class AlertService:
                             "delta": str(check.comparison.delta_amount),
                             "percent_saving": str(self._saving_percent(check)),
                             "band": str(self._band(check, reservation)),
+                            "match_classification": check.match_classification.value,
                         },
                     ),
                 )
@@ -121,15 +122,13 @@ class AlertService:
                             type=AlertType.BETTER_RATE_FOUND,
                             severity=AlertSeverity.INFO,
                             title="Nalezena bezpečně porovnatelná lepší nabídka",
-                            message="Nalezená lepší nabídka splnila pravidla přesného porovnání.",
+                            message=self._better_rate_message(check),
                             dedupe_key=f"better-rate:{check.reservation_id}:{current}",
                         )
                     )
                 )
         if check.status is PriceCheckStatus.LOGGED_OUT:
-            created.extend(
-                self._manual_action_alert(check, reservation, AlertType.LOGIN_REQUIRED)
-            )
+            created.extend(self._manual_action_alert(check, reservation, AlertType.LOGIN_REQUIRED))
         if check.status is PriceCheckStatus.CAPTCHA_REQUIRED:
             created.extend(
                 self._manual_action_alert(check, reservation, AlertType.CAPTCHA_REQUIRED)
@@ -231,17 +230,38 @@ class AlertService:
             and comparison.delta_amount is not None
         )
         saving = -comparison.delta_amount
-        return "\n".join(
-            (
-                reservation.property_name or "Rezervace Booking.com",
-                reservation.room_type or "Neuvedený typ pokoje",
-                f"Pobyt: {reservation.check_in} → {reservation.check_out}",
-                f"Rezervovaná cena: {comparison.booked_price} {comparison.currency}",
-                f"Aktuální cena: {comparison.current_price} {comparison.currency}",
-                f"Úspora: {saving} {comparison.currency} ({self._saving_percent(check):.2f} %)",
-                "Výsledek: bezpečně porovnatelná nabídka",
-            )
+        match_text = {
+            MatchClassification.EXACT: "Nalezena nižší cena stejného pokoje.",
+            MatchClassification.EQUIVALENT: "Nalezena nižší cena ekvivalentního pokoje.",
+            MatchClassification.BETTER: "Nalezena nižší cena prokazatelně lepšího pokoje.",
+        }[check.match_classification]
+        lines = [
+            reservation.property_name or "Rezervace Booking.com",
+            reservation.room_type or "Neuvedený typ pokoje",
+            f"Pobyt: {reservation.check_in} → {reservation.check_out}",
+            f"Rezervovaná cena: {comparison.booked_price} {comparison.currency}",
+            f"Aktuální cena: {comparison.current_price} {comparison.currency}",
+            f"Úspora: {saving} {comparison.currency} ({self._saving_percent(check):.2f} %)",
+            f"Výsledek: {match_text}",
+        ]
+        if check.match_classification is MatchClassification.BETTER:
+            lines.append(self._objective_summary(check))
+        return "\n".join(lines)
+
+    @staticmethod
+    def _objective_summary(check: PriceCheckRecord) -> str:
+        match = check.match_result
+        if not match or not match.matched_rate:
+            return "Objektivní zlepšení bylo potvrzeno."
+        evaluation = next(
+            (item for item in match.candidate_evaluations if item.rate == match.matched_rate), None
         )
+        if not evaluation or not evaluation.objective_differences:
+            return "Objektivní zlepšení bylo potvrzeno."
+        return "Zlepšení: " + ", ".join(evaluation.objective_differences) + "."
+
+    def _better_rate_message(self, check: PriceCheckRecord) -> str:
+        return "Nalezena prokazatelně lepší nabídka. " + self._objective_summary(check)
 
     def _is_new_historical_low(self, check: PriceCheckRecord) -> bool:
         current = check.comparison.current_price if check.comparison else None
@@ -268,9 +288,7 @@ class AlertService:
             else "Je nutné ruční ověření CAPTCHA"
         )
         property_name = (
-            reservation.property_name
-            if reservation and reservation.property_name
-            else "Rezervace"
+            reservation.property_name if reservation and reservation.property_name else "Rezervace"
         )
         return self._create(
             Alert(

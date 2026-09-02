@@ -54,6 +54,18 @@ comparable-price requirements remain unchanged.
 Papaya's existing production record already has `children=0`; no re-import is needed after this
 change. Atlas Haven and Dar Dikrayat remain untouched without their original import evidence.
 
+The next unreleased matcher follow-up keeps the exact-reservation guarantee while preserving the
+existing `exact` category separately from `equivalent` and objectively `better` rooms. Different
+room wording is not enough: public scoped evidence must prove property, requested occupancy,
+currency, final tax-inclusive total, food, cancellation, payment and every known booked room fact.
+Private room/dorm bed, bathroom, balcony/terrace, area, view, air conditioning, kitchen,
+accessibility and bed type are structured facts; Economy/Classic/Deluxe-style labels prove nothing.
+The lowest total among all individually safe exact/equivalent/better offers wins; exact,
+equivalent, better only break an equal-price tie, followed by stable diagnostic order.
+Non-orderable terms are ambiguous. Price-drop alerts name the category and a
+safe terse objective improvement. No raw DOM is stored and existing immutable snapshot JSON needs
+no migration. Papaya's dorm offer and unproven Economy/Classic alternatives remain non-comparable.
+
 Version `0.5.1` adds the CSRF-protected, Ingress-aware `Zkontrolovat nyní` action. It uses the
 same non-overlapping shared runner, persistent browser context, exact matcher, schedule state,
 history, alert rules, and deduplication as the scheduler. Completed manual and scheduled checks

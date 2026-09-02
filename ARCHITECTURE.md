@@ -187,8 +187,8 @@ availability subtree, but must inspect the result for personal data before any
 fixture is committed. It removes scripts and likely session/account-bearing
 attributes as a defense in depth; it never captures cookies or the profile.
 
-`MatchResult` contains `accepted`, score, classification (`equivalent` or
-`upgrade_candidate`), matched rate, reasons, warnings, and rejected
+`MatchResult` contains `accepted`, score, classification (`exact`, `equivalent`,
+or `better`), matched rate, objective differences/evidence, warnings, and rejected
 candidates. `PriceCheck` is an append-only result with explicit status,
 comparable amount, booked amount, delta, rate snapshot, and error.
 
@@ -294,18 +294,23 @@ as its own status, never as a price.
 `CandidateEvaluation` objects. It has no Playwright, database, scheduler, UI,
 or Home Assistant dependency, and does not read price for scoring or selection.
 
-Known property mismatches, insufficient occupancy, room-type conflicts,
-missing booked breakfast, meal-plan mismatch, non-refundable substitution for
-a flexible booking, and earlier known cancellation deadlines are hard rejects.
-Unknown candidate occupancy, breakfast, meal, or cancellation facts produce
-`AMBIGUOUS` with warnings instead of being treated as false or accepted exactly.
+Known property mismatches, missing requested occupancy, room-count evidence,
+currency/final-tax evidence, room-type conflicts, missing booked breakfast,
+meal-plan mismatch, non-refundable substitution for a flexible booking, worse
+payment terms, and earlier cancellation deadlines are hard rejects. Missing
+mandatory candidate evidence is not inferred from a marketing room label.
 
-After hard rules, an interpretable weighted score combines room (45%),
-occupancy (20%), meal (15%), cancellation (15%), and payment (5%). Room names
-use conservative token/feature normalization; known room upgrades are returned
-as `UPGRADE_CANDIDATE` and excluded from automatic selection. The selection
-order is `EXACT`, `EQUIVALENT`, then `BETTER`; every candidate is preserved in
-the result. A later price service may only use an accepted result.
+`RateOffer.room_facts` records only explicit public text or scoped room context:
+private room/dorm bed, bathroom, balcony/terrace, area, view, air conditioning,
+kitchen, accessibility, bed type, and room capacity. For a different name, every
+known booked fact must be confirmed. No worse fact may be compensated by another
+benefit. A larger area, private bathroom, preserved/private room, or other fact
+is `better` only when objectively compared with a known booked fact; a marketing
+word is never an upgrade. Among all individually accepted candidates, the lowest
+same-currency, tax-inclusive full total wins; `EXACT`, `EQUIVALENT`, then
+`BETTER` only break an equal-price tie, followed by the stable diagnostic index.
+Non-orderable rate terms return `AMBIGUOUS`. Every candidate and its safe evidence is
+preserved in the result. A later price service may only use an accepted result.
 
 ## Phase 5 persistence and explicit checks
 

@@ -14,8 +14,10 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from app.alerts.models import Alert, AlertSeverity, AlertType
 from app.alerts.notifications import HomeAssistantNotificationAdapter
+from app.booking.models import RateOffer
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
+from app.matching.models import CandidateEvaluation, MatchClassification, MatchResult
 from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
 from app.reservations.models import Reservation, ReservationCandidate
 from app.scheduling.models import CheckTrigger
@@ -186,9 +188,10 @@ def test_czech_navigation_back_links_and_presentation_helpers(tmp_path) -> None:
             assert response.text.count(prefix + prefix) == 0
             assert f'aria-current="page">{active}</a>' in response.text
         assert f'href="{prefix}/">BookingTracker</a>' in client.get("/", headers=headers).text
-        assert f'href="{prefix}/">← Zpět na rezervace</a>' in client.get(
-            "/settings", headers=headers
-        ).text
+        assert (
+            f'href="{prefix}/">← Zpět na rezervace</a>'
+            in client.get("/settings", headers=headers).text
+        )
     assert status_label("ready") == "Připraven"
     assert status_label("parser_error") == "Nepodařilo se přečíst nabídku"
     assert status_label("future_state") == "Neznámý stav"
@@ -249,6 +252,124 @@ def test_dashboard_and_detail_render_czech_check_diagnostics_under_ingress(tmp_p
     assert "Zkontrolovat nyní" in detail.text
     assert f'href="{prefix}/">← Zpět na rezervace</a>' in detail.text
     assert f'action="{prefix}/reservations/{stored.id}/check"' in detail.text
+
+
+def test_detail_displays_safe_equivalent_or_better_room_evidence(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    offer = RateOffer(
+        property_name="STORHAUGEN GARD",
+        room_name="Jiný dvoulůžkový pokoj s balkonem",
+        normalized_room_name="jiny dvouluzkovy pokoj s balkonem",
+        adults=2,
+        children=0,
+        breakfast_included=True,
+        current_price=Decimal("1200"),
+        currency="NOK",
+        free_cancellation=True,
+        taxes_included=True,
+        source_row_text="sanitized",
+        source_url="https://example.test",
+        scrape_timestamp=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    evaluation = CandidateEvaluation(
+        rate=offer,
+        accepted=True,
+        score=Decimal("1"),
+        classification=MatchClassification.BETTER,
+        evidence=["requested occupancy confirmed", "breakfast terms confirmed"],
+        objective_differences=["balcony"],
+    )
+    match = MatchResult(
+        accepted=True,
+        score=Decimal("1"),
+        matched_rate=offer,
+        classification=MatchClassification.BETTER,
+        candidate_evaluations=[evaluation],
+    )
+    app.state.history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            status=PriceCheckStatus.SUCCESS,
+            matched=True,
+            match_classification=MatchClassification.BETTER,
+            match_result=match,
+        ),
+        [offer],
+    )
+
+    with TestClient(app) as client:
+        detail = client.get(f"/reservations/{stored.id}")
+
+    assert "Shoda: Lepší nabídka" in detail.text
+    assert "Nalezený pokoj: Jiný dvoulůžkový pokoj s balkonem" in detail.text
+    assert "Objektivní zlepšení: balcony" in detail.text
+
+
+def test_detail_renders_legacy_match_result_without_room_facts(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    offer = RateOffer(
+        property_name="STORHAUGEN GARD",
+        room_name="Dvoulůžkový pokoj",
+        normalized_room_name="dvouluzkovy pokoj",
+        adults=2,
+        children=0,
+        breakfast_included=True,
+        current_price=Decimal("1200"),
+        currency="NOK",
+        free_cancellation=True,
+        taxes_included=True,
+        source_row_text="sanitized",
+        source_url="https://example.test",
+        scrape_timestamp=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    match = MatchResult(
+        accepted=True,
+        score=Decimal("1"),
+        matched_rate=offer,
+        classification=MatchClassification.EXACT,
+        candidate_evaluations=[
+            CandidateEvaluation(
+                rate=offer,
+                accepted=True,
+                score=Decimal("1"),
+                classification=MatchClassification.EXACT,
+            )
+        ],
+    )
+    check = app.state.history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            status=PriceCheckStatus.SUCCESS,
+            matched=True,
+            match_classification=MatchClassification.EXACT,
+            match_result=match,
+        ),
+        [offer],
+    )
+    legacy_match = match.model_dump(mode="json")
+    legacy_match["matched_rate"].pop("room_facts")
+    legacy_match["candidate_evaluations"][0].pop("diagnostic_index")
+    legacy_match["candidate_evaluations"][0].pop("objective_differences")
+    legacy_match["candidate_evaluations"][0].pop("evidence")
+    legacy_match["candidate_evaluations"][0]["rate"].pop("room_facts")
+    with app.state.history.database.transaction() as connection:
+        connection.execute(
+            "UPDATE price_checks SET match_result_json = ? WHERE id = ?",
+            (json.dumps(legacy_match), str(check.id)),
+        )
+
+    with TestClient(app) as client:
+        detail = client.get(f"/reservations/{stored.id}")
+
+    assert detail.status_code == 200
+    assert "Shoda: Přesná shoda" in detail.text
+    assert "Nalezený pokoj: Dvoulůžkový pokoj" in detail.text
 
 
 def test_detail_falls_back_for_pre_diagnostics_history_row(tmp_path) -> None:  # noqa: ANN001
@@ -413,14 +534,24 @@ def _grand_hotel_pdf() -> bytes:
     pdf.setFont("FixtureUnicode", 10)
     pdf.setTitle("Gmail - Grand Hotel Hønefoss - reservation confirmed")
     lines = [
-        "Zjistit více", "Nikdy vás nepožádáme o platbu mimo Booking.com.",
-        "Ubytování Grand Hotel", "Hønefoss vás bude očekávat", "Grand Hotel Hønefoss",
-        "Informace o rezervaci", "Arrival: 26. srpna 2026", "Departure: 27. srpna 2026",
+        "Zjistit více",
+        "Nikdy vás nepožádáme o platbu mimo Booking.com.",
+        "Ubytování Grand Hotel",
+        "Hønefoss vás bude očekávat",
+        "Grand Hotel Hønefoss",
+        "Informace o rezervaci",
+        "Arrival: 26. srpna 2026",
+        "Departure: 27. srpna 2026",
         "Vaše rezervace: 1 noc, Levný dvoulůžkový pokoj s manželskou postelí",
-        "Reservations for: 2 adults", "Breakfast included",
-        "Podmínky zrušení rezervace", "zdarma do 24. srpna 2026 23:59",
-        "Informace o ceně", "Celková cena NOK 1320.54", "Informace o platbě",
-        "Plánované platby celkem NOK 1320.54", "Celkem zaplaceno NOK 0",
+        "Reservations for: 2 adults",
+        "Breakfast included",
+        "Podmínky zrušení rezervace",
+        "zdarma do 24. srpna 2026 23:59",
+        "Informace o ceně",
+        "Celková cena NOK 1320.54",
+        "Informace o platbě",
+        "Plánované platby celkem NOK 1320.54",
+        "Celkem zaplaceno NOK 0",
         "Booking.com automaticky strhne částku z Vaší karty",
     ]
     y = 800
@@ -465,7 +596,7 @@ def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path)
         assert "Grand Hotel Hønefoss" in response.text and "Rozpoznáno" not in response.text
         assert "Nikdy vás nepožádáme" not in response.text
         assert "Informace o rezervaci" not in response.text
-        assert '<details open' not in response.text
+        assert "<details open" not in response.text
         assert response.text.count('class="reservation-review__total"') == 1
         assert 'name="children"' in response.text
         assert "Booking URL:" not in response.text
@@ -834,8 +965,7 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
         (PriceCheckStatus.SUCCESS, "Kontrola ceny byla dokončena."),
         (
             PriceCheckStatus.NO_MATCH,
-            "Kontrola byla dokončena, ale nebyla nalezena bezpečně "
-            "porovnatelná nabídka.",
+            "Kontrola byla dokončena, ale nebyla nalezena bezpečně porovnatelná nabídka.",
         ),
         (
             PriceCheckStatus.TIMEOUT,
@@ -927,8 +1057,7 @@ def test_check_now_sanitizes_stdout_and_does_not_create_price_drop_on_failure(
     ).casefold()
     assert "booking_check_completed" in logged
     assert all(
-        value not in logged
-        for value in ("1234", "secret", "guest@example", "<html>", "private")
+        value not in logged for value in ("1234", "secret", "guest@example", "<html>", "private")
     )
     assert not any(
         alert.type is AlertType.PRICE_DROP
@@ -943,9 +1072,7 @@ def test_check_now_rejects_invalid_csrf_missing_and_inactive_reservations(tmp_pa
     )
     inactive = app.state.reservations.create(checkable_reservation(active=False))
     with TestClient(app) as client:
-        denied = client.post(
-            f"/reservations/{inactive.id}/check", data={"csrf_token": "invalid"}
-        )
+        denied = client.post(f"/reservations/{inactive.id}/check", data={"csrf_token": "invalid"})
         get_attempt = client.get(f"/reservations/{inactive.id}/check")
         missing = client.post(
             "/reservations/00000000-0000-0000-0000-000000000001/check",
@@ -970,9 +1097,7 @@ def test_check_now_returns_immediately_when_shared_runner_is_busy(tmp_path) -> N
     stored = app.state.reservations.create(checkable_reservation())
     pipeline = BlockingManualCheckPipeline(app.state.history)
     app.state.runner.checks = pipeline
-    running = Thread(
-        target=lambda: app.state.runner.run_check(stored.id, CheckTrigger.SCHEDULER)
-    )
+    running = Thread(target=lambda: app.state.runner.run_check(stored.id, CheckTrigger.SCHEDULER))
     running.start()
     assert pipeline.started.wait(timeout=1)
     try:
@@ -1036,7 +1161,6 @@ def test_manual_lease_rejects_check_now_without_persisting_history(tmp_path) -> 
         )
         assert response.status_code == 200
         assert (
-            "Automatickou kontrolu nelze spustit během otevřené vzdálené relace."
-            in response.text
+            "Automatickou kontrolu nelze spustit během otevřené vzdálené relace." in response.text
         )
         assert app.state.history.latest(reservation.id) is None

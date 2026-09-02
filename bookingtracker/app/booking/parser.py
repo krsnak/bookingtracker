@@ -12,6 +12,7 @@ from app.booking.normalization import (
     parse_price,
     text_contains,
 )
+from app.booking.room_facts import extract_room_facts
 from app.booking.selectors import BookingSelectors
 
 
@@ -63,6 +64,7 @@ class BookingRateParser:
                     rate,
                     property_name=property_name,
                     room_name=room_name,
+                    room_facts_text=room.text(),
                     source_url=source_url,
                 )
                 if rate_warning:
@@ -109,6 +111,7 @@ class BookingRateParser:
                     room_name=room_name,
                     normalized_room_name=normalize_room_name(room_name),
                     occupancy_text=occupancy_node.text() if occupancy_node else None,
+                    room_facts=extract_room_facts(rate_text),
                     breakfast_included=self._breakfast_included(rate_text),
                     breakfast_genius_benefit=self._genius_breakfast(rate_text),
                     current_price=current_price,
@@ -141,6 +144,7 @@ class BookingRateParser:
         *,
         property_name: str | None,
         room_name: str,
+        room_facts_text: str,
         source_url: str,
     ) -> tuple[RateOffer | None, str | None]:
         current_node = rate.first_test_id("current-price")
@@ -206,6 +210,7 @@ class BookingRateParser:
                 room_name=room_name,
                 normalized_room_name=normalize_room_name(room_name),
                 occupancy_text=occupancy_node.text() if occupancy_node else None,
+                room_facts=extract_room_facts(room_facts_text),
                 meal_plan=meal_node.text() if meal_node else None,
                 breakfast_included=breakfast_included,
                 breakfast_genius_benefit=breakfast_genius,
