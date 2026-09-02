@@ -476,8 +476,14 @@ cannot replace a private room, and every known booked property and rate protecti
 confirmed. The lowest tax-inclusive total among individually safe candidates wins; category order
 only breaks a price tie. Safe evidence is stored in existing immutable JSON snapshots without raw
 DOM or a migration. Papaya remains `no_comparable_offer` when its alternatives lack proof; the
-STORHAUGEN exact fixture remains exact without a false price or `PRICE_DROP`. Reservation overview,
-images, and expanded detail/history are deferred respectively to 0.5.6, 0.5.7, and 0.5.8.
+STORHAUGEN exact fixture remains exact without a false price or `PRICE_DROP`. Version 0.5.6
+removes the unsafe unanchored PDF property fallback, treats `Your booking is confirmed at …` as
+authoritative public property evidence, and recognizes English `DD Month YYYY` only as stay dates
+when the arrival/departure evidence is explicit. Payment, cancellation, issuance, and confirmation
+dates remain non-stay evidence; conflicts require manual review. Adults-only `children=0` remains
+unchanged. The real public PDF upload route was validated locally, with no migration or stored
+reservation rewrite. Reservation overview, images, and expanded detail/history are deferred
+respectively to 0.5.7, 0.5.8, and 0.5.9.
 
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every

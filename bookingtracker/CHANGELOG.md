@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.6
+
+- Remove the unsafe unanchored property-name fallback: payment-card lists and generic payment,
+  cancellation, amenity, tax, guest, and contact sections cannot become accommodation identity.
+- Treat the English `Your booking is confirmed at …` confirmation line as authoritative property
+  evidence, including a harmless split PDF-layout column; unknown or conflicting identity remains
+  for manual review instead of selecting an arbitrary line.
+- Support English `DD Month YYYY` for explicitly labelled arrival/departure dates. Payment,
+  cancellation, issuance, and confirmation dates remain non-stay evidence; conflicting explicit
+  stay dates require manual review.
+- Preserve the adults-only `children=0` rule. A real local PDF upload passed through the public
+  E2E route with no DB migration and no change to existing reservations.
+- Keep 0.5.5 exact/equivalent/better comparison, browser navigation, and price safeguards
+  unchanged.
+
 ## 0.5.5
 
 - Keep `exact` separate while accepting a differently named room only as explicit
