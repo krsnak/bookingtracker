@@ -1,5 +1,15 @@
 # BookingTracker
 
+Version 0.5.4 fixes post-release reservation validation and failure classification. A reliable
+adults-only confirmation block stores `children=0`, while conflicting or unrecognized occupancy
+remains unknown. Missing search facts are a repairable `incomplete_reservation`, never a Booking
+navigation error: the browser does not open, and there is no technical backoff or failure alert.
+`no_comparable_offer` is technically healthy, uses the normal interval, and resets the technical
+failure series. A historical `CHECK_FAILED` is hidden from the current detail after a newer healthy
+check, but retains its history, delivery state, and manual-only `acknowledged_at`. Sanitization is
+idempotent and ordinary UI remains Czech-only. Exact matcher, offer parser, URL builder, and
+browser navigation are unchanged.
+
 Version 0.5.3 fixes deterministic Booking navigation and scheduler reliability after 0.5.2
 navigated only a canonical hotel URL: dates and occupancy could then depend on cookies and profile
 state, and the scheduler could wait behind a manual check before running a stale second attempt.
@@ -71,8 +81,8 @@ the local single-user Home Assistant interface fully Czech, compact, and
 logically navigable, taking inspiration only from TripWatch's information
 density without copying its brand or source code. Phase 11A / 0.5.0 is COMPLETE after
 production validation. The 0.5.1 diagnostic intermediate step is production-validated. The
-0.5.3 parser/navigation reliability was production-validated; its Papaya corrective follow-up is
-locally verified and awaits review. Phases 11B–11D remain planned.
+0.5.3 parser/navigation reliability was production-validated. The 0.5.4 Papaya corrective bugfix
+is implemented and release-validated locally. Phases 11B–11D remain planned.
 
 - **11A / 0.5.0 — Navigation, Czech language, and typography:** a `Rezervace`
   home page, Czech global navigation and presentation mappings, reliable back
@@ -87,13 +97,13 @@ locally verified and awaits review. Phases 11B–11D remain planned.
   validation confirmed the expected Papaya `no_comparable_offer` after `children=0` was supplied.
   Its existing production record was already manually corrected, so this follow-up applies only to
   future or safe repeat imports; it does not alter Atlas Haven or Dar Dikrayat automatically.
-- **11B / 0.5.4 — Reservation overview:** month-grouped responsive cards with
+- **11B / 0.5.5 — Reservation overview:** month-grouped responsive cards with
   exact-match-safe comparable prices, Czech status/date presentation, and
   clear add/check-all actions.
-- **11C / 0.5.5 — Property images:** validated manual uploads, optimized local
+- **11C / 0.5.6 — Property images:** validated manual uploads, optimized local
   thumbnails under `/data`, safe relative database references, and a local
   placeholder; any Booking-derived image remains a later optional step.
-- **11D / 0.5.6 — Reservation detail and price history:** compact facts,
+- **11D / 0.5.7 — Reservation detail and price history:** compact facts,
   accepted comparable-price deltas, local history chart, reservation actions,
   and separately collapsed diagnostics.
 
@@ -101,13 +111,15 @@ The phase retains CSRF, arbitrary HA Ingress prefixes, the browser lifecycle,
 scheduler, Home Assistant/Telegram notification boundary, and the rule that a
 price is comparable only after an accepted exact or explicitly better match.
 
-## Production validation for 0.5.3
+## Production validation for 0.5.4
 
-After installing 0.5.3 on the Raspberry Pi, close any remote browser lease and run one manual
+After installing 0.5.4 on the Raspberry Pi, close any remote browser lease and run one manual
 check for each active reservation. Confirm the Czech flash result and refreshed
 `Poslední kontrola` fields. STORHAUGEN must remain `success`/`exact_match` at 1250 NOK against
 1138.39 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar Dikrayat must safely remain
-non-comparable when an equivalent offer is absent.
+non-comparable when an equivalent offer is absent. Papaya's `children=0` record remains valid;
+its healthy `no_match`/`no_comparable_offer` result must not show a price, delta, `PRICE_DROP`,
+technical failure series, or an active stale `CHECK_FAILED` detail alert.
 
 ```bash
 ha apps logs 96d726fc_bookingtracker | tail -n 200 | grep 'booking_check_completed'

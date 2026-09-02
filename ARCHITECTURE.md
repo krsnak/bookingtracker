@@ -461,8 +461,12 @@ non-comparable/`PRICE_DROP` protections remain unchanged.
 
 Local live validation recorded one exact comparable STORHAUGEN offer at 1250 NOK against 1138.39
 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar Dikrayat safely returned
-`no_comparable_offer`. Reservation overview, images, and expanded detail/history are deferred
-respectively to 0.5.4, 0.5.5, and 0.5.6.
+`no_comparable_offer`. Version 0.5.4 makes the post-release import/failure classification explicit:
+an adults-only occupancy block records zero children, incomplete facts stop before browser
+navigation, and `no_comparable_offer` is technically healthy. It preserves manual-only alert
+acknowledgement and hides a superseded `CHECK_FAILED` only from the current detail. Exact matcher,
+offer parser, URL builder, and browser navigation remain unchanged. Reservation overview, images,
+and expanded detail/history are deferred respectively to 0.5.5, 0.5.6, and 0.5.7.
 
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every

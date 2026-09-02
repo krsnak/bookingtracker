@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.4
 
 - Treat a reliably recognized adults-only confirmation block as zero children while retaining
   unknown children for missing, conflicting, or unrecognized guest evidence in both text and PDF
@@ -13,6 +13,10 @@
   state, use the normal interval, and hide a superseded `CHECK_FAILED` only on the current detail.
   Its history, delivery status, and manual acknowledgement are unchanged. Exact-match and
   `PRICE_DROP` protections are unchanged.
+- Production validation: after Papaya Hostel was set to `children=0`, navigation and offer
+  collection completed and the safe result was `no_match`/`no_comparable_offer` in exact matching.
+  It created neither a price nor a `PRICE_DROP`; only the former failure-series/alert
+  classification required this bugfix.
 
 ## 0.5.3
 

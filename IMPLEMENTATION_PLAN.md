@@ -25,8 +25,8 @@ production-complete.
 Phases 0–10 are complete. The architecture supports macOS development and
 Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
 after production validation. Diagnostic 0.5.1 is production-validated. Parser
-parser/navigation reliability 0.5.3 is production-validated; its corrective follow-up awaits
-review; Phases 11B–11D are not started.
+parser/navigation reliability 0.5.3 is production-validated. The 0.5.4 corrective bugfix is
+implementation complete with release validation pending; Phases 11B–11D are not started.
 
 Post-release production validation identified one import/input classification follow-up: Papaya
 confirmed that an explicit adults-only block must persist `children=0`, and that an unknown child
@@ -42,7 +42,8 @@ technical failure alert only on the current detail while preserving alert/histor
 | Phase 11 | IN PROGRESS |
 | Phase 11A / 0.5.0 | COMPLETE |
 | Diagnostic 0.5.1 | COMPLETE, PRODUCTION-VALIDATED |
-| Parser/navigation reliability 0.5.3 | PRODUCTION-VALIDATED; CORRECTIVE FOLLOW-UP PENDING REVIEW |
+| Parser/navigation reliability 0.5.3 | PRODUCTION-VALIDATED |
+| Reservation validation bugfix 0.5.4 | IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING |
 | Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
@@ -289,7 +290,18 @@ Phase 11 items have not started.
    production record was already corrected manually; the import follow-up is for future or safe
    repeat imports and does not alter Atlas Haven or Dar Dikrayat automatically.
 
-### Phase 11B — reservation overview (not started; planned 0.5.4)
+### Reservation validation bugfix (implementation complete; release validation pending, 0.5.4)
+
+1. [x] Import `children=0` only from a reliable adults-only occupancy block; preserve unknown
+   children for conflicting or unrecognized evidence.
+2. [x] Classify missing search facts as `incomplete_reservation` before browser navigation with
+   Czech correction guidance and no technical failure backoff or alert.
+3. [x] Treat `no_comparable_offer` as technically healthy, reset its failure series, and retain
+   manual-only alert acknowledgement while hiding superseded failure alerts from the current detail.
+4. [x] Preserve exact matcher, offer parser, URL builder, browser navigation, and the no-false-
+   `PRICE_DROP` invariant.
+
+### Phase 11B — reservation overview (not started; planned 0.5.5)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -306,7 +318,7 @@ Phase 11 items have not started.
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.5)
+### Phase 11C — property images (not started; planned 0.5.6)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -321,7 +333,7 @@ Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (not started; planned 0.5.6)
+### Phase 11D — reservation detail and price history (not started; planned 0.5.7)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,
