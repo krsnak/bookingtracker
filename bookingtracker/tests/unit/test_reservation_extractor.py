@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.reservations.deterministic_parser import (
     parse_anchored_property_name,
+    parse_cancellation,
     parse_dates_with_evidence,
     parse_occupancy,
     parse_property_name,
@@ -153,6 +154,58 @@ def test_confirmation_anchor_beats_payment_cards_and_generic_fallbacks() -> None
     assert parse_anchored_property_name(lines) == "Riad Dar Sirine & Palmyra"
     assert parse_property_name(lines) == "Riad Dar Sirine & Palmyra"
     assert parse_property_name([lines[0], "Payment methods"]) is None
+
+
+def test_confirmation_anchor_keeps_guest_house_but_rejects_section_headings() -> None:
+    assert parse_anchored_property_name(
+        [
+            "Your booking is confirmed at Sample Guest House at Market Square 12."
+        ]
+    ) == "Sample Guest House at Market Square"
+    assert parse_property_name(["Hotel: Payment methods"]) is None
+    assert parse_property_name(["Accommodation: Cancellation policy"]) is None
+
+
+def test_property_section_headings_are_whole_normalized_values_not_keywords() -> None:
+    assert parse_property_name(["Booking property: Sunrise Guest House"]) == "Sunrise Guest House"
+    assert (
+        parse_property_name(["Booking property: Guest House Dar Example"])
+        == "Guest House Dar Example"
+    )
+    assert parse_property_name(["Booking property: Riad Example Hotel"]) == "Riad Example Hotel"
+    assert parse_property_name(["Booking property: Guest details:"]) is None
+    assert parse_property_name(["Booking property: Cancellation policy"]) is None
+    assert parse_property_name(["Booking property: Booking details"]) is None
+    assert parse_property_name(["Booking property: Price information"]) is None
+
+
+def test_wrapped_confirmation_anchor_never_absorbs_next_section_or_address() -> None:
+    assert parse_anchored_property_name(
+        [
+            "Your booking is confirmed at Sample Guest House at",
+            "Market Square 12.",
+            "Payment methods",
+        ]
+    ) == "Sample Guest House at Market Square"
+    assert parse_anchored_property_name(
+        ["Your booking is confirmed at Sunrise Guest House", "Payment methods"]
+    ) == "Sunrise Guest House"
+    assert parse_anchored_property_name(
+        ["Your booking is confirmed at Sample Guest House at", "Address: 15 Example Street"]
+    ) is None
+
+
+def test_cancellation_policy_parses_day_first_deadline() -> None:
+    text, free, deadline = parse_cancellation(
+        [
+            "Cancellation policy",
+            "Free cancellation until 13 September 2026 at 23:59",
+            "Payment information",
+        ]
+    )
+
+    assert text is not None and free is True
+    assert deadline == datetime(2026, 9, 13, 23, 59)
 
 
 def test_day_first_english_stay_dates_exclude_payment_cancellation_and_issue_dates() -> None:

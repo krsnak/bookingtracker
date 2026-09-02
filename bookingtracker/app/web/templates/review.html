@@ -28,7 +28,9 @@
       </section>
       <section>
         <h3>Podmínky</h3>
-        {% if candidate.cancellation_deadline %}<p>Zdarma do {{ format_datetime(candidate.cancellation_deadline) }}</p>{% endif %}
+        {% if candidate.cancellation_deadline %}<p>Zdarma do {{ format_datetime(candidate.cancellation_deadline) }}</p>
+        {% elif candidate.free_cancellation is true %}<p>Bezplatné zrušení</p>
+        {% elif candidate.free_cancellation is false %}<p>Rezervace nelze bezplatně zrušit</p>{% endif %}
         {% if candidate.payment_conditions %}<p>Booking.com strhne platbu automaticky</p>{% endif %}
       </section>
       <section class="reservation-review__full">

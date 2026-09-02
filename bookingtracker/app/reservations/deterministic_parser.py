@@ -41,7 +41,7 @@ _AMOUNT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CANCELLATION_HEADINGS = (
-    r"cancellation conditions?|cancellation fee|podmínky zrušení rezervace|"
+    r"cancellation conditions?|cancellation policy|cancellation fee|podmínky zrušení rezervace|"
     r"poplatek za zrušení rezervace"
 )
 _NON_STAY_DATE_CONTEXT = re.compile(
@@ -78,6 +78,25 @@ _PAYMENT_CARD_BRANDS = (
     "diners club",
     "jcb",
     "maestro",
+)
+_PROPERTY_SECTION_HEADINGS = frozenset(
+    {
+        "payment methods",
+        "payment information",
+        "cancellation policy",
+        "cancellation conditions",
+        "cancellation fee",
+        "booking details",
+        "booking information",
+        "price information",
+        "guest details",
+        "guest information",
+        "amenities",
+        "facilities",
+        "taxes",
+        "fees",
+        "contact us",
+    }
 )
 INVALID_DATE_RANGE_MESSAGE = (
     "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu. Zkontrolujte vložené potvrzení."
@@ -253,20 +272,55 @@ def _anchored_property_names(lines: list[str]) -> list[str]:
             name = re.sub(r"[*_]+", "", match.group(1)).strip(" .,:;-—")
             if _is_property_name(name):
                 anchors.append(name)
-        confirmation = re.search(
-            # Gmail's PDF layout can append a bare page-number column to this
-            # otherwise authoritative Booking confirmation subject.  Do not
-            # treat that column as part of the property identity.
-            r"\b(?:your\s+)?booking\s+(?:is\s+)?confirmed\s+at\s+"
-            r"([^\d.!]+?)\s*(?:\d{1,2})?(?:[.!]|$)",
-            line,
-            re.I,
-        )
-        if confirmation:
-            name = re.sub(r"[*_]+", "", confirmation.group(1)).strip(" .,:;-—")
-            if _is_property_name(name):
-                anchors.append(name)
+        name = _confirmation_anchor_name(line)
+        if name is None:
+            continue
+        anchors.append(name)
+        # A layout split is accepted only after an unfinished grammatical
+        # connector (for example "at" or "&"). This prevents an otherwise
+        # complete property name from absorbing a following section, date,
+        # address, reservation number, or payment text.
+        if _requires_anchor_continuation(name) and index + 1 < len(lines):
+            continuation = _safe_anchor_continuation(lines[index + 1])
+            if continuation and _is_property_name(f"{name} {continuation}"):
+                anchors[-1] = f"{name} {continuation}"
+            else:
+                anchors.pop()
     return anchors
+
+
+def _confirmation_anchor_name(line: str) -> str | None:
+    confirmation = re.search(
+        # Gmail's PDF layout can append a bare page-number column to this
+        # otherwise authoritative Booking confirmation subject. Do not treat
+        # that column as part of the property identity.
+        r"\b(?:your\s+)?booking\s+(?:is\s+)?confirmed\s+at\s+"
+        r"([^\d.!]+?)\s*(?:\d{1,2})?(?:[.!]|$)",
+        line,
+        re.I,
+    )
+    if confirmation is None:
+        return None
+    name = re.sub(r"[*_]+", "", confirmation.group(1)).strip(" .,:;-—")
+    return name if _is_property_name(name) else None
+
+
+def _requires_anchor_continuation(name: str) -> bool:
+    return bool(re.search(r"(?:\b(?:at|in|of|the|and)|[&,\-])$", name, re.I))
+
+
+def _safe_anchor_continuation(line: str) -> str | None:
+    value = re.sub(r"\s+\d{1,2}[.!]?$", "", line).strip(" .,:;-—")
+    if not value or _is_property_section_heading(value) or parse_date(value):
+        return None
+    if re.search(
+        r"\b(?:arrival|departure|check[ -]?in|check[ -]?out|reservation|booking details|"
+        r"payment|price|address|street|road|avenue|postal|invoice|issued|confirmed)\b|\d",
+        value,
+        re.I,
+    ):
+        return None
+    return value
 
 
 def _property_candidates(lines: list[str]) -> list[tuple[str, int]]:
@@ -337,14 +391,19 @@ def _is_property_name(value: str) -> bool:
         and len(value) <= 100
         and value.count(".") <= 1
         and card_brand_count < 2
+        and not _is_property_section_heading(value)
         and not re.search(
             r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:|zrušit|storno|"
-            r"cena|nikdy vás|platb|we will never|payment|accepted cards?|payment methods?|"
-            r"cancellation|amenities|facilities|taxes?|fees?|guests?|contact|rezervaci můžete)",
+            r"cena|nikdy vás|platb|we will never|rezervaci můžete)",
             value,
             re.I,
         )
     )
+
+
+def _is_property_section_heading(value: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+    return normalized in _PROPERTY_SECTION_HEADINGS
 
 
 def parse_dates_with_evidence(
@@ -616,7 +675,9 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
             r"^(price|payment) information|^informace o (ceně|platbě)", line, re.I
         ):
             break
-        if in_section or re.search(r"non-refundable|refundable", line, re.I):
+        if in_section or re.search(
+            r"non-refundable|refundable|free (?:of charge )?cancellation", line, re.I
+        ):
             relevant.append(line)
     if not relevant:
         return None, None, None
@@ -643,6 +704,20 @@ def parse_cancellation(lines: list[str]) -> tuple[str | None, bool | None, datet
             deadline = datetime.strptime(timestamp, "%B %d %Y %H:%M")
         except ValueError:
             pass
+    if deadline is None:
+        english_day_first = re.search(
+            rf"(?:until|before)\s+(?:[A-Za-z]+,?\s+)?(\d{{1,2}})\s+({_MONTHS})\s+"
+            r"(\d{4})(?:\s+(?:at\s+)?(\d{1,2}):(\d{2}))?",
+            text,
+            re.I,
+        )
+        if english_day_first:
+            day, month, year, hour, minute = english_day_first.groups()
+            try:
+                timestamp = f"{month} {day} {year} {hour or '0'}:{minute or '0'}"
+                deadline = datetime.strptime(timestamp, "%B %d %Y %H:%M")
+            except ValueError:
+                pass
     if deadline is None:
         czech = re.search(
             r"(?:zdarma do|bezplatné zrušení(?: rezervace)?\s+do|"

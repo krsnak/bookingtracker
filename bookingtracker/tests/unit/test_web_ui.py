@@ -593,6 +593,31 @@ def _riad_dar_sirine_layout_pdf() -> bytes:
     return output.getvalue()
 
 
+def _guest_house_cancellation_layout_pdf() -> bytes:
+    """Sanitized layout with a Guest House name and cancellation-policy heading."""
+    output = BytesIO()
+    pdf = canvas.Canvas(output)
+    pdf.setTitle("Sanitized Booking import fixture")
+    lines = [
+        "Your booking is confirmed at Sample Guest House at ",
+        "Market Square 12.",
+        "Arrival: 14 September 2026",
+        "Departure: 15 September 2026",
+        "Your reservation: 1 night, Standard Double Room",
+        "Reservations for: 2 adults",
+        "Breakfast included",
+        "Cancellation policy",
+        "Free cancellation",
+        "Total price EUR 47.08",
+    ]
+    y = 800
+    for line in lines:
+        pdf.drawString(60, y, line)
+        y -= 20
+    pdf.save()
+    return output.getvalue()
+
+
 def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path) -> None:  # noqa: ANN001
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
@@ -678,6 +703,83 @@ def test_pdf_upload_uses_confirmation_anchor_not_payment_cards_or_issue_date(tmp
     assert "American Express, Visa, Euro/Mastercard, Diners Club, JCB, Maestro" not in response.text
     assert ">2. září 2026<" not in response.text
     assert "Chybí povinné údaje rezervace" not in response.text
+
+
+def test_pdf_upload_renders_guest_house_cancellation_policy(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract/pdf",
+            data={"csrf_token": app.state.csrf},
+            files={
+                "pdf": (
+                    "confirmation.pdf",
+                    _guest_house_cancellation_layout_pdf(),
+                    "application/pdf",
+                )
+            },
+        )
+        candidate = next(iter(app.state.pending.values()))
+
+    assert response.status_code == 200
+    assert candidate.property_name == "Sample Guest House at Market Square"
+    assert (candidate.check_in, candidate.check_out) == (date(2026, 9, 14), date(2026, 9, 15))
+    assert candidate.free_cancellation is True
+    assert candidate.cancellation_deadline is None
+    assert candidate.missing_critical_fields == []
+    assert "Bezplatné zrušení" in response.text
+
+
+@pytest.mark.parametrize(
+    ("cancellation_lines", "expected", "forbidden"),
+    [
+        (["Free cancellation"], "Bezplatné zrušení", "Zdarma do"),
+        (
+            ["Free cancellation until 13 September 2026 at 23:59"],
+            "Zdarma do 13. září 2026 23:59",
+            "Rezervace nelze bezplatně zrušit",
+        ),
+        (["Non-refundable"], "Rezervace nelze bezplatně zrušit", "Bezplatné zrušení"),
+        (["Contact the property for conditions"], None, "Bezplatné zrušení"),
+    ],
+)
+def test_review_cancellation_display_is_explicit_and_never_guesses_deadline(
+    tmp_path, cancellation_lines, expected, forbidden  # noqa: ANN001
+) -> None:
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    source_text = "\n".join(
+        [
+            "Your booking is confirmed at Sample Guest House",
+            "Arrival: 14 September 2026",
+            "Departure: 15 September 2026",
+            "Your reservation: 1 night, Standard Double Room",
+            "Reservations for: 2 adults",
+            "Breakfast included",
+            "Cancellation policy",
+            *cancellation_lines,
+            "Price information",
+            "Total price EUR 47.08",
+        ]
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract",
+            data={"csrf_token": app.state.csrf, "source_text": source_text},
+        )
+        candidate = next(iter(app.state.pending.values()))
+
+    assert response.status_code == 200
+    assert candidate.missing_critical_fields == []
+    if expected is None:
+        assert candidate.free_cancellation is None
+        assert "Zdarma do" not in response.text
+    else:
+        assert expected in response.text
+    assert forbidden not in response.text
 
 
 def test_browser_alerts_and_validation_error_render(tmp_path) -> None:  # noqa: ANN001

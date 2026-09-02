@@ -116,6 +116,15 @@ def test_non_refundable_downgrade_is_rejected() -> None:
     assert "free cancellation" in candidate.rejection_reasons[0]
 
 
+def test_missing_cancellation_evidence_cannot_match_booked_free_cancellation() -> None:
+    result = MATCHER.match(reservation(), [rate(free_cancellation=None)])
+
+    candidate = result.candidate_evaluations[0]
+    assert not result.accepted
+    assert candidate.classification is MatchClassification.REJECTED
+    assert "free cancellation" in candidate.rejection_reasons[0]
+
+
 def test_earlier_and_later_cancellation_deadlines_are_distinguished() -> None:
     booked = reservation(cancellation_deadline=datetime(2026, 9, 10))
     earlier = MATCHER.match(booked, [rate(cancellation_deadline=datetime(2026, 9, 9))])
