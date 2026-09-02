@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.7
+
+- Accept legitimate property names such as `Guest House` while rejecting only complete,
+  normalized Booking section headings including payment methods, cancellation policy, booking
+  details, price information, and guest details.
+- Support a safely wrapped English `Your booking is confirmed at …` property anchor without
+  absorbing a subsequent section, date, address, reservation number, or payment text.
+- Recognize `Cancellation policy`, keep cancellation dates separate from stay dates, and show
+  confirmed free cancellation even when no deadline is safely evidenced. The UI never invents a
+  deadline; non-refundable and unknown cancellation states remain distinct.
+- Preserve the conservative exact/equivalent/better matcher: missing or worse cancellation
+  evidence remains non-comparable. A real local PDF upload passed the public E2E path; no DB
+  migration or rewrite of existing reservations is needed.
+
 ## 0.5.6
 
 - Remove the unsafe unanchored property-name fallback: payment-card lists and generic payment,

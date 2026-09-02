@@ -5,9 +5,9 @@ State is persisted only in `/data`: SQLite, logs, and the Booking browser profil
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
 — is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
 The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED**.
-Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.6 PDF-import
+Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.7 PDF-import
 reliability release is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**.
-Phase 11B is planned for 0.5.7, Phase 11C for 0.5.8, and Phase 11D for 0.5.9.
+Phase 11B is planned for 0.5.8, Phase 11C for 0.5.9, and Phase 11D for 0.5.10.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
@@ -65,6 +65,16 @@ equivalent, better only break an equal-price tie, followed by stable diagnostic 
 Non-orderable terms are ambiguous. Price-drop alerts name the category and a
 safe terse objective improvement. No raw DOM is stored and existing immutable snapshot JSON needs
 no migration. Papaya's dorm offer and unproven Economy/Classic alternatives remain non-comparable.
+
+Version 0.5.7 fixes the second English PDF layout without weakening conservative import. `Guest
+House` and other ordinary accommodation words remain valid property identity; only complete,
+normalized section headings are excluded. The confirmation anchor supports one safe wrapped line
+and cannot absorb a following section, date, address, reservation number, or payment text.
+`Cancellation policy` distinguishes free cancellation with or without a safe deadline,
+non-refundable, and unknown conditions; the Czech review shows known free cancellation without
+inventing a deadline. Cancellation dates remain non-stay evidence. The exact/equivalent/better
+matcher remains conservative, a real local public PDF-upload E2E passed, and no DB migration or
+stored-reservation rewrite is needed.
 
 Version 0.5.6 makes PDF confirmation import conservative again. It removes the unanchored generic
 property fallback, recognizes the authoritative English `Your booking is confirmed at …` property
