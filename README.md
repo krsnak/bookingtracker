@@ -1,5 +1,17 @@
 # BookingTracker
 
+Version 0.5.5 adds automatic `exact`, `equivalent`, and objectively `better` room comparison
+without weakening the booked-reservation invariant. A different room name and marketing labels
+(Economy, Classic, Superior, Deluxe and similar) prove nothing. Room facts are tri-state:
+explicit true, explicit false, or unknown; missing DOM text is never false. Every known booked
+fact remains protected, including private room versus dorm bed, balcony, view, bathroom, food,
+cancellation, payment, occupancy, currency, and tax-inclusive price basis. A better fact never
+compensates for a worse or unknown one. Among independently safe candidates the lowest
+tax-inclusive full-stay total in the same currency wins; exact, equivalent, better, then stable
+diagnostic index break only a price tie. Non-orderable terms are ambiguous without a price. Safe
+evidence and objective differences are persisted without raw DOM or PII; old snapshots remain
+readable without a migration. The detail and `PRICE_DROP` alert name the selected category.
+
 Version 0.5.4 fixes post-release reservation validation and failure classification. A reliable
 adults-only confirmation block stores `children=0`, while conflicting or unrecognized occupancy
 remains unknown. Missing search facts are a repairable `incomplete_reservation`, never a Booking
@@ -93,8 +105,8 @@ the local single-user Home Assistant interface fully Czech, compact, and
 logically navigable, taking inspiration only from TripWatch's information
 density without copying its brand or source code. Phase 11A / 0.5.0 is COMPLETE after
 production validation. The 0.5.1 diagnostic intermediate step is production-validated. The
-0.5.3 parser/navigation reliability was production-validated. The 0.5.4 Papaya corrective bugfix
-is implemented and release-validated locally. Phases 11B–11D remain planned.
+0.5.3 parser/navigation reliability was production-validated. The 0.5.5 matcher reliability
+release is release-validated locally. Phases 11B–11D remain planned.
 
 - **11A / 0.5.0 — Navigation, Czech language, and typography:** a `Rezervace`
   home page, Czech global navigation and presentation mappings, reliable back
@@ -109,27 +121,28 @@ is implemented and release-validated locally. Phases 11B–11D remain planned.
   validation confirmed the expected Papaya `no_comparable_offer` after `children=0` was supplied.
   Its existing production record was already manually corrected, so this follow-up applies only to
   future or safe repeat imports; it does not alter Atlas Haven or Dar Dikrayat automatically.
-- **11B / 0.5.5 — Reservation overview:** month-grouped responsive cards with
+- **11B / 0.5.6 — Reservation overview:** month-grouped responsive cards with
   exact-match-safe comparable prices, Czech status/date presentation, and
   clear add/check-all actions.
-- **11C / 0.5.6 — Property images:** validated manual uploads, optimized local
+- **11C / 0.5.7 — Property images:** validated manual uploads, optimized local
   thumbnails under `/data`, safe relative database references, and a local
   placeholder; any Booking-derived image remains a later optional step.
-- **11D / 0.5.7 — Reservation detail and price history:** compact facts,
+- **11D / 0.5.8 — Reservation detail and price history:** compact facts,
   accepted comparable-price deltas, local history chart, reservation actions,
   and separately collapsed diagnostics.
 
 The phase retains CSRF, arbitrary HA Ingress prefixes, the browser lifecycle,
 scheduler, Home Assistant/Telegram notification boundary, and the rule that a
-price is comparable only after an accepted exact or explicitly better match.
+price is comparable only after an accepted exact, equivalent, or objectively better match.
 
-## Production validation for 0.5.4
+## Production validation for 0.5.5
 
-After installing 0.5.4 on the Raspberry Pi, close any remote browser lease and run one manual
+After installing 0.5.5 on the Raspberry Pi, close any remote browser lease and run one manual
 check for each active reservation. Confirm the Czech flash result and refreshed
-`Poslední kontrola` fields. STORHAUGEN must remain `success`/`exact_match` at 1250 NOK against
-1138.39 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar Dikrayat must safely remain
-non-comparable when an equivalent offer is absent. Papaya's `children=0` record remains valid;
+`Poslední kontrola` fields. The STORHAUGEN sanitized fixture must remain `success`/`exact_match`
+at 1250 NOK against 1138.39 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar
+Dikrayat must safely remain non-comparable when required evidence is absent. Papaya's
+`children=0` record remains valid;
 its healthy `no_match`/`no_comparable_offer` result must not show a price, delta, `PRICE_DROP`,
 technical failure series, or an active stale `CHECK_FAILED` detail alert.
 

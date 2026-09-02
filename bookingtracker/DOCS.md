@@ -5,9 +5,9 @@ State is persisted only in `/data`: SQLite, logs, and the Booking browser profil
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
 — is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
 The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED**.
-Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.4 corrective
-import/input bugfix is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**.
-Phase 11B is planned for 0.5.5, Phase 11C for 0.5.6, and Phase 11D for 0.5.7.
+Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.5 evidence-first
+matcher release is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**.
+Phase 11B is planned for 0.5.6, Phase 11C for 0.5.7, and Phase 11D for 0.5.8.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
@@ -54,7 +54,7 @@ comparable-price requirements remain unchanged.
 Papaya's existing production record already has `children=0`; no re-import is needed after this
 change. Atlas Haven and Dar Dikrayat remain untouched without their original import evidence.
 
-The next unreleased matcher follow-up keeps the exact-reservation guarantee while preserving the
+Version 0.5.5 keeps the exact-reservation guarantee while preserving the
 existing `exact` category separately from `equivalent` and objectively `better` rooms. Different
 room wording is not enough: public scoped evidence must prove property, requested occupancy,
 currency, final tax-inclusive total, food, cancellation, payment and every known booked room fact.

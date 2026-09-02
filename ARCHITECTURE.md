@@ -470,8 +470,14 @@ NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar Dikrayat safely re
 an adults-only occupancy block records zero children, incomplete facts stop before browser
 navigation, and `no_comparable_offer` is technically healthy. It preserves manual-only alert
 acknowledgement and hides a superseded `CHECK_FAILED` only from the current detail. Exact matcher,
-offer parser, URL builder, and browser navigation remain unchanged. Reservation overview, images,
-and expanded detail/history are deferred respectively to 0.5.5, 0.5.6, and 0.5.7.
+offer parser, URL builder, and browser navigation remain unchanged. Version 0.5.5 adds
+evidence-first exact/equivalent/better selection: absent DOM facts remain unknown, a dorm bed
+cannot replace a private room, and every known booked property and rate protection must be
+confirmed. The lowest tax-inclusive total among individually safe candidates wins; category order
+only breaks a price tie. Safe evidence is stored in existing immutable JSON snapshots without raw
+DOM or a migration. Papaya remains `no_comparable_offer` when its alternatives lack proof; the
+STORHAUGEN exact fixture remains exact without a false price or `PRICE_DROP`. Reservation overview,
+images, and expanded detail/history are deferred respectively to 0.5.6, 0.5.7, and 0.5.8.
 
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every

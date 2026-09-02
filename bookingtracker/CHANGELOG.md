@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.5
 
 - Keep `exact` separate while accepting a differently named room only as explicit
   `equivalent` or objectively `better`; a lower price never relaxes a room or rate condition.
@@ -16,6 +16,12 @@
   show safe objective evidence. No schema migration or historical rewrite is required.
 - Papaya validation remains conservative: a dorm bed is rejected and Economy/Classic wording
   alone cannot replace the booked balcony room.
+- Preserve tri-state true/false/unknown room facts: an absent DOM fact is unknown, never a
+  negative fact; a known booked balcony, view, bathroom, food, cancellation, payment, occupancy,
+  currency, and tax basis cannot be lost.
+- Production/fixture validation: Papaya Hostel remains `no_comparable_offer` because its other
+  rooms lack mandatory evidence and its dorm bed is rejected. The STORHAUGEN exact fixture remains
+  exact. Neither validation creates a false price or `PRICE_DROP`.
 
 ## 0.5.4
 

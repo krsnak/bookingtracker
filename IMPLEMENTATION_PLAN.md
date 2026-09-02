@@ -25,8 +25,8 @@ production-complete.
 Phases 0–10 are complete. The architecture supports macOS development and
 Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
 after production validation. Diagnostic 0.5.1 is production-validated. Parser
-parser/navigation reliability 0.5.3 is production-validated. The 0.5.4 corrective bugfix is
-implementation complete with release validation pending; Phases 11B–11D are not started.
+parser/navigation reliability 0.5.3 is production-validated. The 0.5.5 evidence-first matcher
+release is implementation complete with release validation pending; Phases 11B–11D are not started.
 
 Post-release production validation identified one import/input classification follow-up: Papaya
 confirmed that an explicit adults-only block must persist `children=0`, and that an unknown child
@@ -35,7 +35,7 @@ work preserves the existing parser/matcher contract: a completed `no_comparable_
 resets technical failure state, uses the normal schedule interval, and hides a superseded
 technical failure alert only on the current detail while preserving alert/history rows.
 
-The next unreleased matcher follow-up is evidence-first: an exact booked room remains preferred;
+The 0.5.5 matcher release is evidence-first: an exact booked room remains distinguishable;
 a differently named room is accepted only as `equivalent` or `better` with explicit objective
 room and rate evidence. Marketing labels are never quality evidence, missing evidence is
 non-comparable, and a better fact cannot compensate for worse cancellation, food, payment,
@@ -52,7 +52,7 @@ category priority applies only to an equal-price tie, and non-orderable terms st
 | Phase 11A / 0.5.0 | COMPLETE |
 | Diagnostic 0.5.1 | COMPLETE, PRODUCTION-VALIDATED |
 | Parser/navigation reliability 0.5.3 | PRODUCTION-VALIDATED |
-| Reservation validation bugfix 0.5.4 | IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING |
+| Evidence-first room matcher 0.5.5 | IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING |
 | Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
@@ -310,7 +310,7 @@ Phase 11 items have not started.
 4. [x] Preserve exact matcher, offer parser, URL builder, browser navigation, and the no-false-
    `PRICE_DROP` invariant.
 
-### Phase 11B — reservation overview (not started; planned 0.5.5)
+### Phase 11B — reservation overview (not started; planned 0.5.6)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -321,13 +321,13 @@ Phase 11 items have not started.
    amount/percentage delta, and concise Czech last-check state.
 4. [ ] Render cheaper as a green down arrow, more expensive as a red up arrow,
    unchanged as neutral, and waiting/error/non-comparable as grey without a
-   false price change. A price is comparable only after an accepted exact or
-   explicitly labelled better match.
+   false price change. A price is comparable only after an accepted exact,
+   equivalent, or objectively better match.
 5. [ ] Replace technical ISO timestamps with localized Czech dates and relative
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.6)
+### Phase 11C — property images (not started; planned 0.5.7)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -342,7 +342,7 @@ Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (not started; planned 0.5.7)
+### Phase 11D — reservation detail and price history (not started; planned 0.5.8)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,
