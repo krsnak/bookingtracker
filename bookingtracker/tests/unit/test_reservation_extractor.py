@@ -4,7 +4,12 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from app.reservations.deterministic_parser import parse_anchored_property_name, parse_occupancy
+from app.reservations.deterministic_parser import (
+    parse_anchored_property_name,
+    parse_dates_with_evidence,
+    parse_occupancy,
+    parse_property_name,
+)
 from app.reservations.extractor import ReservationExtractor
 from app.reservations.import_document import ReservationImportDocument
 from app.reservations.models import FieldConfidence, ImportDocumentSource
@@ -136,6 +141,59 @@ def test_security_paragraph_is_never_a_property_name() -> None:
         "2026-08-26\n2026-08-27\n2 adults\n1 night, Twin Room\nTotal price NOK 100"
     )
     assert candidate.property_name is None
+
+
+def test_confirmation_anchor_beats_payment_cards_and_generic_fallbacks() -> None:
+    lines = [
+        "American Express, Visa, Euro/Mastercard, Diners Club, JCB, Maestro",
+        "Your booking is confirmed at Riad Dar Sirine & Palmyra 12.",
+        "Payment methods",
+    ]
+
+    assert parse_anchored_property_name(lines) == "Riad Dar Sirine & Palmyra"
+    assert parse_property_name(lines) == "Riad Dar Sirine & Palmyra"
+    assert parse_property_name([lines[0], "Payment methods"]) is None
+
+
+def test_day_first_english_stay_dates_exclude_payment_cancellation_and_issue_dates() -> None:
+    check_in, check_out, warnings, errors = parse_dates_with_evidence(
+        [
+            "Payment issued: 2 September 2026",
+            "Free cancellation until 3 September 2026",
+            "Arrival: 11 September 2026",
+            "Departure: 12 September 2026",
+        ]
+    )
+
+    assert (check_in, check_out) == (date(2026, 9, 11), date(2026, 9, 12))
+    assert warnings == [] and errors == []
+
+
+def test_unlabelled_fallback_never_uses_payment_or_cancellation_dates() -> None:
+    check_in, check_out, _warnings, errors = parse_dates_with_evidence(
+        [
+            "Payment issued: 2 September 2026",
+            "Free cancellation until 3 September 2026",
+            "11 September 2026",
+            "12 September 2026",
+        ]
+    )
+
+    assert (check_in, check_out) == (date(2026, 9, 11), date(2026, 9, 12))
+    assert errors == []
+
+
+def test_conflicting_explicit_stay_dates_require_manual_review() -> None:
+    check_in, check_out, _warnings, errors = parse_dates_with_evidence(
+        [
+            "Arrival: 11 September 2026",
+            "Arrival: 12 September 2026",
+            "Departure: 13 September 2026",
+        ]
+    )
+
+    assert check_in is None and check_out is None
+    assert errors
 
 
 def test_occupancy_only_adults_means_zero_children_in_czech_and_english() -> None:

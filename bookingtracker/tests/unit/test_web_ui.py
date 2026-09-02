@@ -568,6 +568,31 @@ def _grand_hotel_pdf() -> bytes:
     return output.getvalue()
 
 
+def _riad_dar_sirine_layout_pdf() -> bytes:
+    """Minimal sanitized PDF layout covering the production import regression."""
+    output = BytesIO()
+    pdf = canvas.Canvas(output)
+    pdf.setTitle("Sanitized Booking import fixture")
+    lines = [
+        "Your booking is confirmed at Riad Dar Sirine & Palmyra 12.",
+        "American Express, Visa, Euro/Mastercard, Diners Club, JCB, Maestro",
+        "Payment methods",
+        "Payment issued: 2 September 2026",
+        "Arrival: 11 September 2026",
+        "Departure: 12 September 2026",
+        "Your reservation: 1 night, Deluxe Double Room",
+        "Reservations for: 2 adults",
+        "Breakfast included",
+        "Total price EUR 32.88",
+    ]
+    y = 800
+    for line in lines:
+        pdf.drawString(60, y, line)
+        y -= 20
+    pdf.save()
+    return output.getvalue()
+
+
 def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path) -> None:  # noqa: ANN001
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
@@ -624,6 +649,35 @@ def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path)
         if "{" in line
     )
     assert "style=" not in response.text
+
+
+def test_pdf_upload_uses_confirmation_anchor_not_payment_cards_or_issue_date(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract/pdf",
+            data={"csrf_token": app.state.csrf},
+            files={"pdf": ("confirmation.pdf", _riad_dar_sirine_layout_pdf(), "application/pdf")},
+        )
+        candidate = next(iter(app.state.pending.values()))
+
+    assert response.status_code == 200
+    assert candidate.property_name == "Riad Dar Sirine & Palmyra"
+    assert (candidate.check_in, candidate.check_out, candidate.nights) == (
+        date(2026, 9, 11),
+        date(2026, 9, 12),
+        1,
+    )
+    assert (candidate.rooms_count, candidate.adults, candidate.children) == (1, 2, 0)
+    assert candidate.room_type == "Deluxe Double Room"
+    assert candidate.breakfast_included is True
+    assert (candidate.booked_total_price, candidate.currency) == (Decimal("32.88"), "EUR")
+    assert candidate.missing_critical_fields == []
+    assert "American Express, Visa, Euro/Mastercard, Diners Club, JCB, Maestro" not in response.text
+    assert ">2. září 2026<" not in response.text
+    assert "Chybí povinné údaje rezervace" not in response.text
 
 
 def test_browser_alerts_and_validation_error_render(tmp_path) -> None:  # noqa: ANN001

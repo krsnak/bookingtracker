@@ -30,6 +30,9 @@ _DATE_PATTERN = re.compile(
     rf"({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})",
     re.IGNORECASE,
 )
+_ENGLISH_DAY_FIRST_DATE_PATTERN = re.compile(
+    rf"\b(\d{{1,2}})\s+({_MONTHS})\s*,?\s+(\d{{4}})\b", re.IGNORECASE
+)
 _ISO_DATE_PATTERN = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "Kč": "CZK", "zł": "PLN"}
 _AMOUNT_PATTERN = re.compile(
@@ -37,13 +40,14 @@ _AMOUNT_PATTERN = re.compile(
     r"([\d][\d\s.,]*\d|\d)\s*(EUR|USD|GBP|CZK|PLN|NOK))",
     re.IGNORECASE,
 )
-_PROPERTY_EXCLUSIONS = (
-    r"arrival|departure|reservation|guests|příjezd|odjezd|"
-    r"vaše rezervace|rezervace pro|booking url"
-)
 _CANCELLATION_HEADINGS = (
     r"cancellation conditions?|cancellation fee|podmínky zrušení rezervace|"
     r"poplatek za zrušení rezervace"
+)
+_NON_STAY_DATE_CONTEXT = re.compile(
+    r"payment|payable|paid|invoice|issued|created|confirmed|confirmation|"
+    r"platb|uhrazen|faktura|vystaven|vytvořen|potvrzen",
+    re.I,
 )
 _LOCALE_LABELS = {
     "arrival": ("arrival", "check-in", "check in", "příjezd"),
@@ -67,6 +71,14 @@ _PROPERTY_CTA_TEXT = {
     "zjistit více", "find out more", "upravit rezervaci", "manage booking",
     "zaplatit hned", "pay now", "booking.com", "více informací",
 }
+_PAYMENT_CARD_BRANDS = (
+    "american express",
+    "visa",
+    "mastercard",
+    "diners club",
+    "jcb",
+    "maestro",
+)
 INVALID_DATE_RANGE_MESSAGE = (
     "Nepodařilo se spolehlivě určit datum příjezdu a odjezdu. Zkontrolujte vložené potvrzení."
 )
@@ -142,6 +154,13 @@ def parse_date(value: str) -> date | None:
     if iso:
         try:
             return date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+        except ValueError:
+            return None
+    english_day_first = _ENGLISH_DAY_FIRST_DATE_PATTERN.search(value)
+    if english_day_first:
+        day, month, year = english_day_first.groups()
+        try:
+            return datetime.strptime(f"{month} {day} {year}", "%B %d %Y").date()
         except ValueError:
             return None
     match = _DATE_PATTERN.search(value)
@@ -222,7 +241,7 @@ def has_conflicting_anchored_properties(lines: list[str]) -> bool:
 
 def _anchored_property_names(lines: list[str]) -> list[str]:
     anchors: list[str] = []
-    for index in range(len(lines)):
+    for index, line in enumerate(lines):
         evidence = " ".join(lines[index : index + 3])
         match = re.search(
             r"\b(?:Ubytování|Accommodation)\s+(.+?)\s+"
@@ -232,6 +251,19 @@ def _anchored_property_names(lines: list[str]) -> list[str]:
         )
         if match:
             name = re.sub(r"[*_]+", "", match.group(1)).strip(" .,:;-—")
+            if _is_property_name(name):
+                anchors.append(name)
+        confirmation = re.search(
+            # Gmail's PDF layout can append a bare page-number column to this
+            # otherwise authoritative Booking confirmation subject.  Do not
+            # treat that column as part of the property identity.
+            r"\b(?:your\s+)?booking\s+(?:is\s+)?confirmed\s+at\s+"
+            r"([^\d.!]+?)\s*(?:\d{1,2})?(?:[.!]|$)",
+            line,
+            re.I,
+        )
+        if confirmation:
+            name = re.sub(r"[*_]+", "", confirmation.group(1)).strip(" .,:;-—")
             if _is_property_name(name):
                 anchors.append(name)
     return anchors
@@ -283,19 +315,6 @@ def _property_candidates(lines: list[str]) -> list[tuple[str, int]]:
         )
         if match:
             add(match.group(1), 70)
-    for line in lines:
-        if (
-            line.casefold() not in _PROPERTY_UI_TEXT
-            and not parse_date(line)
-            and not parse_money(line)
-        ):
-            if (
-                len(line) > 2
-                and not re.match(r"^\d", line)
-                and not re.search(rf"^({_PROPERTY_EXCLUSIONS})", line, re.I)
-                and _is_property_name(line)
-            ):
-                add(line, 10)
     return sorted(candidates.items(), key=lambda item: (-item[1], item[0].casefold()))
 
 
@@ -309,15 +328,19 @@ def parse_property_aliases(lines: list[str], primary: str | None) -> list[str]:
 
 
 def _is_property_name(value: str) -> bool:
+    lowered = value.casefold()
+    card_brand_count = sum(brand in lowered for brand in _PAYMENT_CARD_BRANDS)
     return bool(
         value
-        and value.casefold() not in _PROPERTY_UI_TEXT
-        and value.casefold() not in _PROPERTY_CTA_TEXT
+        and lowered not in _PROPERTY_UI_TEXT
+        and lowered not in _PROPERTY_CTA_TEXT
         and len(value) <= 100
         and value.count(".") <= 1
+        and card_brand_count < 2
         and not re.search(
             r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:|zrušit|storno|"
-            r"cena|nikdy vás|platb|we will never|payment|rezervaci můžete)",
+            r"cena|nikdy vás|platb|we will never|payment|accepted cards?|payment methods?|"
+            r"cancellation|amenities|facilities|taxes?|fees?|guests?|contact|rezervaci můžete)",
             value,
             re.I,
         )
@@ -343,6 +366,13 @@ def parse_dates_with_evidence(
             departures.append(parsed)
             labelled_indexes.add(index)
     if arrivals or departures:
+        if len(set(arrivals)) > 1 or len(set(departures)) > 1:
+            return (
+                None,
+                None,
+                ["Konfliktní explicitní data pobytu byla odmítnuta."],
+                [INVALID_DATE_RANGE_MESSAGE],
+            )
         check_in = arrivals[0] if arrivals else None
         check_out = departures[0] if departures else None
         if check_in and check_out and check_out > check_in:
@@ -388,7 +418,7 @@ def _is_cancellation_date_line(line: str) -> bool:
 
 
 def _fallback_stay_dates(lines: Iterable[str]) -> list[tuple[int, date]]:
-    """Exclude cancellation sections before considering unlabelled date evidence."""
+    """Exclude non-stay sections before considering unlabelled date evidence."""
     dates: list[tuple[int, date]] = []
     in_cancellation = False
     for index, line in enumerate(lines):
@@ -402,7 +432,11 @@ def _fallback_stay_dates(lines: Iterable[str]) -> list[tuple[int, date]]:
             re.I,
         ):
             in_cancellation = False
-        if in_cancellation or _is_cancellation_date_line(line):
+        if (
+            in_cancellation
+            or _is_cancellation_date_line(line)
+            or _NON_STAY_DATE_CONTEXT.search(line)
+        ):
             continue
         if parsed := parse_date(line):
             dates.append((index, parsed))
