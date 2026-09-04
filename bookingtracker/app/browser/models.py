@@ -31,6 +31,7 @@ class NavigationStatus(StrEnum):
     PAGE_CLOSED = "page_closed"
     LOGIN_REQUIRED = "login_required"
     CAPTCHA_REQUIRED = "captcha_required"
+    AVAILABILITY_UNKNOWN = "availability_unknown"
 
 
 class RemoteDesktopState(StrEnum):

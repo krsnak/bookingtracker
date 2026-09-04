@@ -350,3 +350,22 @@ def test_snapshot_no_exact_offer_and_missing_required_structure_are_distinct(
 
     assert results[0].safe_error_detail == "Nebyla nalezena bezpečně porovnatelná nabídka."
     assert results[1].safe_error_detail == ("Povinná struktura cenové nabídky nebyla rozpoznána.")
+
+
+def test_availability_unknown_is_safe_and_has_no_price_or_alert(tmp_path) -> None:  # noqa: ANN001
+    checked, stored, history = service(
+        tmp_path, NavigationStatus.AVAILABILITY_UNKNOWN, ParseResult(status=ParseStatus.SUCCESS)
+    )
+    result = checked.check(stored)
+    alerts = AlertRepository(SQLiteDatabase(tmp_path / "checks.db"))
+    created = AlertService(alerts, history, lambda alert: None).process(
+        result, stored, consecutive_failures=2
+    )
+
+    assert result.status is PriceCheckStatus.AVAILABILITY_UNKNOWN
+    assert result.reason_code is CheckReasonCode.AVAILABILITY_UNKNOWN
+    assert result.diagnostic_phase is CheckDiagnosticPhase.AVAILABILITY_DETECTION
+    assert result.comparison is None
+    assert "Dostupnost se nepodařilo ověřit" in (result.safe_error_detail or "")
+    assert not created
+    assert not alerts.list_for_reservation(stored.id)

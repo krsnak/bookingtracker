@@ -36,6 +36,7 @@ class PriceCheckStatus(StrEnum):
     BROWSER_ERROR = "browser_error"
     TIMEOUT = "timeout"
     INCOMPLETE_RESERVATION = "incomplete_reservation"
+    AVAILABILITY_UNKNOWN = "availability_unknown"
 
 
 class CheckReasonCode(StrEnum):
@@ -49,6 +50,7 @@ class CheckReasonCode(StrEnum):
     NO_COMPARABLE_OFFER = "no_comparable_offer"
     UNEXPECTED_ERROR = "unexpected_error"
     INCOMPLETE_RESERVATION = "incomplete_reservation"
+    AVAILABILITY_UNKNOWN = "availability_unknown"
 
 
 class CheckDiagnosticPhase(StrEnum):
@@ -62,6 +64,7 @@ class CheckDiagnosticPhase(StrEnum):
     PRICE = "price"
     CURRENCY = "currency"
     EXACT_MATCH = "exact_match"
+    AVAILABILITY_DETECTION = "availability_detection"
 
 
 class PriceComparison(BaseModel):

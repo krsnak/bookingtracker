@@ -24,6 +24,12 @@ class BookingSelectors:
     LEGACY_PRICE_CLASS = "bui-price-display__value"
     LEGACY_OCCUPANCY_CLASS = "hprt-roomtype-occupancy-text"
     LEGACY_TAXES_CLASS = "prd-taxes-and-fees-under-price"
+    AVAILABILITY_ACTIVATION = 'button[data-testid="reviews-block-availability"]'
+    UNKNOWN_OFFER_HINT = (
+        '[data-testid*="room-card"], [data-testid*="room-option"], '
+        '[data-testid*="rate-card"], [data-testid*="rate-option"], '
+        '[data-testid*="current-price"], [data-testid*="price-and-discounted-price"]'
+    )
 
     # Developer capture roots only. They define a narrow DOM boundary and are
     # not interpreted as offers; offer parsing continues to use the selectors

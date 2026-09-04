@@ -18,7 +18,12 @@ from app.booking.models import RateOffer
 from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
 from app.matching.models import CandidateEvaluation, MatchClassification, MatchResult
-from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
+from app.pricing.models import (
+    CheckDiagnosticPhase,
+    CheckReasonCode,
+    PriceCheckRecord,
+    PriceCheckStatus,
+)
 from app.reservations.import_document import canonical_booking_hotel_url, pdf_document
 from app.reservations.models import Reservation, ReservationCandidate
 from app.scheduling.models import CheckTrigger
@@ -253,6 +258,51 @@ def test_dashboard_and_detail_render_czech_check_diagnostics_under_ingress(tmp_p
     assert "Zkontrolovat nyní" in detail.text
     assert f'href="{prefix}/">← Zpět na rezervace</a>' in detail.text
     assert f'action="{prefix}/reservations/{stored.id}/check"' in detail.text
+
+
+def test_detail_renders_availability_unknown_without_failure_claims(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    now = datetime(2026, 9, 4, 12, tzinfo=UTC)
+    app.state.history.create(
+        PriceCheckRecord(
+            reservation_id=stored.id,
+            checked_at=now,
+            started_at=now,
+            finished_at=now,
+            status=PriceCheckStatus.AVAILABILITY_UNKNOWN,
+            reason_code=CheckReasonCode.AVAILABILITY_UNKNOWN,
+            diagnostic_phase=CheckDiagnosticPhase.AVAILABILITY_DETECTION,
+            safe_error_detail=(
+                "Dostupnost se nepodařilo ověřit. Booking.com pro zadaný termín "
+                "nezobrazil nabídky ani potvrzení, že je ubytování vyprodané."
+            ),
+            consecutive_failure_count=2,
+            next_check_at=now + timedelta(hours=2),
+        ),
+        [],
+    )
+
+    with TestClient(app) as client:
+        detail = client.get(f"/reservations/{stored.id}")
+
+    assert "Dostupnost se nepodařilo ověřit" in detail.text
+    assert (
+        "Booking.com pro zadaný termín nezobrazil nabídky ani potvrzení, že je ubytování "
+        "vyprodané."
+    ) in detail.text
+    assert "Stav: availability_unknown" in detail.text
+    assert "Důvod: availability_unknown" in detail.text
+    assert "Fáze: availability_detection" in detail.text
+    assert "Další pokus: 4. 9. 2026 v 14:00" in detail.text
+    assert "Počet po sobě jdoucích neúspěchů: 2" in detail.text
+    assert "parser_error" not in detail.text
+    assert "Nabídku nelze bezpečně porovnat" not in detail.text
+    assert "Ubytování je vyprodané" not in detail.text
+    assert "reviews-block-availability" not in detail.text
+    assert "Playwright" not in detail.text
 
 
 def test_detail_displays_safe_equivalent_or_better_room_evidence(tmp_path) -> None:  # noqa: ANN001

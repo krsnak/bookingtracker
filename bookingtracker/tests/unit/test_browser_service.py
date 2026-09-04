@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from app.booking.selectors import BookingSelectors
 from app.browser.dom import OptionalLocatorReader
 from app.browser.models import AuthenticationState, BrowserState, NavigationStatus
 from app.browser.service import BookingBrowserService
@@ -14,12 +16,21 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 class FakeLocator:
     def __init__(
-        self, count: int = 0, text: str = "", inner_error: Exception | None = None
+        self,
+        count: int = 0,
+        text: str = "",
+        inner_error: Exception | None = None,
+        on_click: Callable[[], None] | None = None,
+        visible: bool = True,
+        enabled: bool = True,
     ) -> None:
         self._count = count
         self._text = text
         self._inner_error = inner_error
         self.inner_text_timeouts: list[int] = []
+        self._on_click = on_click
+        self._visible = visible
+        self._enabled = enabled
 
     @property
     def first(self) -> FakeLocator:
@@ -38,6 +49,17 @@ class FakeLocator:
             raise self._inner_error
         return self._text
 
+    def click(self, timeout: int) -> None:
+        del timeout
+        if self._on_click:
+            self._on_click()
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+    def is_enabled(self) -> bool:
+        return self._enabled
+
 
 class FakePage:
     def __init__(self) -> None:
@@ -52,11 +74,39 @@ class FakePage:
         self.wait_for_selector_error: Exception | None = None
         self.active_navigations = 0
         self.max_active_navigations = 0
+        self.scroll_calls = 0
+        self.activation_clicks = 0
+        self.activate_surface: str | None = None
+        self.activate_body_text: str | None = None
+        self.activation_visible = True
+        self.activation_enabled = True
 
     def locator(self, selector: str) -> FakeLocator:
         if selector == "body":
             return FakeLocator(count=1, text=self.body_text, inner_error=self.body_error)
+        if selector == 'button[data-testid="reviews-block-availability"]':
+            return FakeLocator(
+                count=self.selector_counts.get(selector, 0),
+                on_click=self._activate,
+                visible=self.activation_visible,
+                enabled=self.activation_enabled,
+            )
+        if selector == BookingSelectors.UNKNOWN_OFFER_HINT:
+            return FakeLocator(
+                count=sum(
+                    self.selector_counts.get(hint, 0)
+                    for hint in UNKNOWN_OFFER_HINT_SELECTORS
+                )
+            )
         return FakeLocator(count=self.selector_counts.get(selector, 0))
+
+    def _activate(self) -> None:
+        self.activation_clicks += 1
+        if self.activate_body_text is not None:
+            self.body_text = self.activate_body_text
+        if self.activate_surface:
+            self.selector_counts[self.activate_surface] = 1
+            self.wait_for_selector_error = None
 
     def goto(self, url: str, **_: object) -> None:
         self.goto_calls.append(url)
@@ -80,7 +130,9 @@ class FakePage:
         if self.wait_for_selector_error:
             raise self.wait_for_selector_error
 
-    def evaluate(self, _: str) -> str:
+    def evaluate(self, script: str) -> str:
+        if "scrollTo" in script:
+            self.scroll_calls += 1
         return "Fake Chromium"
 
     def close(self) -> None:
@@ -132,6 +184,14 @@ def build_service(tmp_path: Path) -> tuple[BookingBrowserService, FakeContext, F
         context,
         playwright,
     )
+
+
+UNKNOWN_OFFER_HINT_SELECTORS = (
+    '[data-testid="room-card"]',
+    '[data-testid="rate-card"]',
+    '[data-testid="current-price"]',
+    '[data-testid="room-card"]',
+)
 
 
 def test_lifecycle_and_page_recovery(tmp_path: Path) -> None:
@@ -225,7 +285,7 @@ def test_navigation_waits_boundedly_for_async_availability_surface(tmp_path: Pat
     assert timeout == 10_000
 
 
-def test_missing_availability_surface_remains_parser_responsibility(tmp_path: Path) -> None:
+def test_missing_availability_surface_is_availability_unknown(tmp_path: Path) -> None:
     service, _, _ = build_service(tmp_path)
     service.start()
     page = service.current_page()
@@ -234,9 +294,179 @@ def test_missing_availability_surface_remains_parser_responsibility(tmp_path: Pa
 
     result = service.navigate("https://www.booking.com/hotel/example")
 
-    assert result.status is NavigationStatus.SUCCESS
-    assert len(page.goto_calls) == 2
+    assert result.status is NavigationStatus.AVAILABILITY_UNKNOWN
+    assert len(page.goto_calls) == 1
     assert len(page.wait_for_selector_calls) == 2
+
+
+def test_empty_shell_activates_once_without_second_goto(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+    page.selector_counts['button[data-testid="reviews-block-availability"]'] = 1
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.AVAILABILITY_UNKNOWN
+    assert page.scroll_calls == 1
+    assert page.activation_clicks == 1
+    assert len(page.goto_calls) == 1
+
+
+def test_activation_can_surface_explicit_no_availability(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+    page.selector_counts['button[data-testid="reviews-block-availability"]'] = 1
+    page.activate_surface = '[data-testid="no-availability"]'
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.SUCCESS
+    assert page.activation_clicks == 1
+
+
+@pytest.mark.parametrize(
+    "offer_hints",
+    (
+        ('[data-testid="room-card"]',),
+        ('[data-testid="rate-card"]',),
+        ('[data-testid="current-price"]',),
+        (
+            '[data-testid="room-card"]',
+            '[data-testid="rate-card"]',
+            '[data-testid="current-price"]',
+        ),
+    ),
+    ids=("room_hint", "rate_hint", "price_hint", "room_rate_price_hints"),
+)
+def test_unknown_offer_hints_continue_to_offer_parser(
+    tmp_path: Path, offer_hints: tuple[str, ...]
+) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+    for hint in offer_hints:
+        page.selector_counts[hint] = 1
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.SUCCESS
+    assert len(page.goto_calls) == 1
+    assert page.activation_clicks == 0
+
+
+def test_captcha_after_activation_has_priority_over_availability_unknown(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+    page.selector_counts['button[data-testid="reviews-block-availability"]'] = 1
+    page.activate_body_text = "Please complete the CAPTCHA security challenge"
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.CAPTCHA_REQUIRED
+    assert page.activation_clicks == 1
+    assert page.scroll_calls == 1
+    assert len(page.goto_calls) == 1
+    assert len(page.wait_for_selector_calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("count", "visible", "enabled"),
+    ((0, True, True), (1, False, True), (1, True, False), (2, True, True)),
+    ids=("missing", "hidden", "disabled", "ambiguous"),
+)
+def test_unsafe_activation_control_is_never_clicked(
+    tmp_path: Path, count: int, visible: bool, enabled: bool
+) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+    page.selector_counts['button[data-testid="reviews-block-availability"]'] = count
+    page.activation_visible = visible
+    page.activation_enabled = enabled
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is NavigationStatus.AVAILABILITY_UNKNOWN
+    assert page.activation_clicks == 0
+    assert page.scroll_calls == 1
+    assert len(page.goto_calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("body_text", "login", "surface", "hint", "goto_error", "expected"),
+    (
+        (
+            "Please complete the CAPTCHA security challenge",
+            False,
+            BookingSelectors.ROOM,
+            False,
+            None,
+            NavigationStatus.CAPTCHA_REQUIRED,
+        ),
+        ("", True, BookingSelectors.NO_AVAILABILITY, False, None, NavigationStatus.LOGIN_REQUIRED),
+        (
+            "",
+            False,
+            BookingSelectors.ROOM,
+            False,
+            RuntimeError("network connection interrupted"),
+            NavigationStatus.NAVIGATION_ERROR,
+        ),
+        ("", False, BookingSelectors.ROOM, False, None, NavigationStatus.SUCCESS),
+        ("", False, BookingSelectors.NO_AVAILABILITY, True, None, NavigationStatus.SUCCESS),
+        ("", False, None, True, None, NavigationStatus.SUCCESS),
+        ("", False, None, False, None, NavigationStatus.AVAILABILITY_UNKNOWN),
+    ),
+    ids=(
+        "captcha_over_offer",
+        "login_over_no_availability",
+        "navigation_error_over_offer",
+        "known_offer",
+        "no_availability_over_unknown_hint",
+        "unknown_offer_hint",
+        "empty_shell",
+    ),
+)
+def test_navigation_state_priority(
+    tmp_path: Path,
+    body_text: str,
+    login: bool,
+    surface: str | None,
+    hint: bool,
+    goto_error: Exception | None,
+    expected: NavigationStatus,
+) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.body_text = body_text
+    page.goto_error = goto_error
+    if login:
+        page.selector_counts['[data-testid="header-sign-in-button"]'] = 1
+    if surface:
+        page.selector_counts[surface] = 1
+    if hint:
+        page.selector_counts['[data-testid="room-card"]'] = 1
+    if not surface:
+        page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+
+    result = service.navigate("https://www.booking.com/hotel/example")
+
+    assert result.status is expected
 
 
 def test_challenge_selector_survives_optional_body_text_timeout(tmp_path: Path) -> None:

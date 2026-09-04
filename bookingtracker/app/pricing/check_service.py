@@ -102,6 +102,7 @@ class PriceCheckService:
             )
         status = self._navigation_status(navigation.status)
         if status is not None:
+            availability_unknown = status is PriceCheckStatus.AVAILABILITY_UNKNOWN
             return self._persist(
                 PriceCheckRecord(
                     reservation_id=reservation.id,
@@ -110,6 +111,20 @@ class PriceCheckService:
                     run_id=run_id or "explicit-check",
                     status=status,
                     error=navigation.error,
+                    reason_code=(
+                        CheckReasonCode.AVAILABILITY_UNKNOWN if availability_unknown else None
+                    ),
+                    diagnostic_phase=(
+                        CheckDiagnosticPhase.AVAILABILITY_DETECTION
+                        if availability_unknown
+                        else None
+                    ),
+                    safe_error_detail=(
+                        "Dostupnost se nepodařilo ověřit. Booking.com pro zadaný termín "
+                        "nezobrazil nabídky ani potvrzení, že je ubytování vyprodané."
+                        if availability_unknown
+                        else None
+                    ),
                 ),
                 [],
             )
@@ -260,6 +275,8 @@ class PriceCheckService:
             PriceCheckStatus.BROWSER_ERROR,
         }:
             return CheckDiagnosticPhase.PAGE_NAVIGATION
+        if record.status is PriceCheckStatus.AVAILABILITY_UNKNOWN:
+            return CheckDiagnosticPhase.AVAILABILITY_DETECTION
         if record.status in {
             PriceCheckStatus.PARSER_ERROR,
             PriceCheckStatus.NO_AVAILABILITY,
@@ -305,6 +322,7 @@ class PriceCheckService:
             NavigationStatus.NAVIGATION_ERROR: PriceCheckStatus.NAVIGATION_ERROR,
             NavigationStatus.BROWSER_CRASH: PriceCheckStatus.BROWSER_ERROR,
             NavigationStatus.PAGE_CLOSED: PriceCheckStatus.BROWSER_ERROR,
+            NavigationStatus.AVAILABILITY_UNKNOWN: PriceCheckStatus.AVAILABILITY_UNKNOWN,
         }
         return mapping.get(status)
 

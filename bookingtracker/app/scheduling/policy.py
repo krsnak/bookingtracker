@@ -17,6 +17,7 @@ class SchedulerSettings:
     manual_action_retry: timedelta = timedelta(days=7)
     failure_alert_threshold: int = 3
     jitter_max: timedelta = timedelta(minutes=10)
+    availability_unknown_retry: timedelta = timedelta(hours=2)
 
 
 class SchedulePolicy:
@@ -55,6 +56,11 @@ class SchedulePolicy:
         elif status is PriceCheckStatus.INCOMPLETE_RESERVATION:
             # The user can correct the record; this is neither Booking nor browser failure.
             delay = self.settings.interval
+        elif status is PriceCheckStatus.AVAILABILITY_UNKNOWN:
+            delay = min(
+                self.settings.availability_unknown_retry,
+                self.settings.max_infrastructure_backoff,
+            )
         else:
             delay = self.settings.interval
         jitter_limit = min(

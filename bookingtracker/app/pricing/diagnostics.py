@@ -47,6 +47,8 @@ def reason_code_for(status: PriceCheckStatus, detail: str | None = None) -> Chec
         return CheckReasonCode.PARSER_ERROR
     if status is PriceCheckStatus.INCOMPLETE_RESERVATION:
         return CheckReasonCode.INCOMPLETE_RESERVATION
+    if status is PriceCheckStatus.AVAILABILITY_UNKNOWN:
+        return CheckReasonCode.AVAILABILITY_UNKNOWN
     if status in {
         PriceCheckStatus.NO_MATCH,
         PriceCheckStatus.AMBIGUOUS,

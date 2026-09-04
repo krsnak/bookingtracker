@@ -583,3 +583,19 @@ def test_manual_failure_alert_is_deduplicated_against_following_scheduler_run(
     assert succeeded is not None and succeeded.consecutive_failure_count == 0
     state = runner.schedules.get(stored.id)
     assert state is not None and state.consecutive_failures == 0
+
+
+def test_availability_unknown_keeps_failure_series_and_retries_in_two_hours() -> None:
+    now = datetime(2026, 9, 4, 12, tzinfo=UTC)
+    state = ScheduleState(
+        reservation_id=UUID("00000000-0000-0000-0000-000000000001"),
+        next_check_at=now,
+        updated_at=now,
+        consecutive_failures=2,
+    )
+    updated = SchedulePolicy(jitter_seconds=lambda maximum: 0).next_state(
+        state, PriceCheckStatus.AVAILABILITY_UNKNOWN, now
+    )
+
+    assert updated.consecutive_failures == 2
+    assert updated.next_check_at == now + timedelta(hours=2)

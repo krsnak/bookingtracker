@@ -31,6 +31,10 @@ _REASON_TEXTS = {
     ),
     CheckReasonCode.UNEXPECTED_ERROR: "Kontrola skončila neočekávanou technickou chybou.",
     CheckReasonCode.INCOMPLETE_RESERVATION: "Rezervace nemá všechny údaje potřebné ke kontrole.",
+    CheckReasonCode.AVAILABILITY_UNKNOWN: (
+        "Dostupnost se nepodařilo ověřit. Booking.com pro zadaný termín nezobrazil nabídky "
+        "ani potvrzení, že je ubytování vyprodané."
+    ),
 }
 
 _VISIBLE_SAFE_DETAILS = {
@@ -45,6 +49,10 @@ _VISIBLE_SAFE_DETAILS = {
     "Kontrolu nelze spustit, protože není uveden počet dospělých. Doplňte jej v editaci rezervace.",
     "Kontrolu nelze spustit, protože není uveden počet dětí. Doplňte jej v editaci rezervace.",
     "Kontrolu nelze spustit, protože není uveden počet pokojů. Doplňte jej v editaci rezervace.",
+    (
+        "Dostupnost se nepodařilo ověřit. Booking.com pro zadaný termín nezobrazil nabídky "
+        "ani potvrzení, že je ubytování vyprodané."
+    ),
 }
 
 
@@ -63,6 +71,8 @@ def check_reason_for(record: PriceCheckRecord) -> CheckReasonCode | None:
 def check_result_text(record: PriceCheckRecord) -> str:
     if record.status is PriceCheckStatus.SUCCESS:
         return "Cena zkontrolována"
+    if record.status is PriceCheckStatus.AVAILABILITY_UNKNOWN:
+        return "Dostupnost se nepodařilo ověřit"
     if record.status is PriceCheckStatus.LOGGED_OUT:
         return "Nutné přihlášení"
     if record.status is PriceCheckStatus.CAPTCHA_REQUIRED:

@@ -17,6 +17,7 @@ _STATUS_LABELS = {
     "disabled": "Vypnuto", "starting_display": "Spouští se obrazovka",
     "session_active": "Ruční relace je aktivní", "stopping": "Ukončuje se",
     "no_availability": "Nabídka není k dispozici",
+    "availability_unknown": "Dostupnost se nepodařilo ověřit",
     "incomplete_reservation": "Doplňte údaje rezervace",
     "unsupported_structure": "Nepodporovaná struktura nabídky",
     "partial": "Nabídka je neúplná", "no_match": "Odpovídající nabídka nebyla nalezena",

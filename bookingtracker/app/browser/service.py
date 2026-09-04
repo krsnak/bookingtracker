@@ -132,17 +132,16 @@ class BookingBrowserService:
                 if self._state in {BrowserState.LOGGED_OUT, BrowserState.LOGIN_REQUIRED}:
                     return self._result(url, NavigationStatus.LOGIN_REQUIRED, page)
                 if not self._wait_for_availability_surface(page):
-                    page.goto(  # type: ignore[attr-defined]
-                        url,
-                        wait_until="domcontentloaded",
-                        timeout=self._settings.navigation_timeout_ms,
-                    )
+                    self._activate_availability(page)
                     self._refresh_page_state(page)
                     if self._state is BrowserState.CAPTCHA_REQUIRED:
                         return self._result(url, NavigationStatus.CAPTCHA_REQUIRED, page)
                     if self._state in {BrowserState.LOGGED_OUT, BrowserState.LOGIN_REQUIRED}:
                         return self._result(url, NavigationStatus.LOGIN_REQUIRED, page)
-                    self._wait_for_availability_surface(page)
+                    if not self._wait_for_availability_surface(page):
+                        if page.locator(BookingSelectors.UNKNOWN_OFFER_HINT).count():  # type: ignore[attr-defined]
+                            return self._result(url, NavigationStatus.SUCCESS, page)
+                        return self._result(url, NavigationStatus.AVAILABILITY_UNKNOWN, page)
                 self._last_successful_navigation = datetime.now()
                 self._state = BrowserState.READY
                 return self._result(url, NavigationStatus.SUCCESS, page)
@@ -178,6 +177,14 @@ class BookingBrowserService:
         except PlaywrightTimeoutError:
             # The parser remains authoritative for unsupported structures.
             return False
+
+    @staticmethod
+    def _activate_availability(page: object) -> None:
+        """One bounded, non-booking activation attempt after an empty property shell."""
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")  # type: ignore[attr-defined]
+        locator = page.locator(BookingSelectors.AVAILABILITY_ACTIVATION)  # type: ignore[attr-defined]
+        if locator.count() == 1 and locator.is_visible() and locator.is_enabled():
+            locator.click(timeout=1000)
 
     def is_logged_in(self) -> AuthenticationState:
         with self._lock:
