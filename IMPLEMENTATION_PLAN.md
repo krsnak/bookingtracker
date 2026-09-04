@@ -25,7 +25,7 @@ production-complete.
 Phases 0–10 are complete. The architecture supports macOS development and
 Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
 after production validation. Diagnostic 0.5.1 is production-validated. Parser
-parser/navigation reliability 0.5.3 is production-validated. The 0.5.7 PDF import reliability
+parser/navigation reliability 0.5.3 is production-validated. The 0.5.8 PDF import reliability
 release is implementation complete with release validation pending; Phases 11B–11D are not started.
 
 Post-release production validation identified one import/input classification follow-up: Papaya
@@ -60,6 +60,14 @@ without absorbing a following section, date, address, reservation number, or pay
 unknown deadline remains unknown in the review UI and matcher. No migration, stored-reservation
 rewrite, or matcher relaxation is required.
 
+The 0.5.8 PDF import release derives hotel identity from a strict canonical Booking hotel link.
+Its visible property text must geometrically overlap the PDF annotation after composition of text
+and graphics transforms, including Gmail layouts. Query and fragments are discarded; confirmation,
+help, payment, homepage, and external links are rejected. Duplicate identical hotel links are
+deduplicated, different hotel links require manual review, and the generic arbitrary-line fallback
+is removed. The safe confirmation anchor remains a fallback. No migration, stored-reservation
+rewrite, or matcher change is required.
+
 | Scope | Status |
 | --- | --- |
 | Phases 0–10 | COMPLETE |
@@ -69,7 +77,7 @@ rewrite, or matcher relaxation is required.
 | Diagnostic 0.5.1 | COMPLETE, PRODUCTION-VALIDATED |
 | Parser/navigation reliability 0.5.3 | PRODUCTION-VALIDATED |
 | Evidence-first room matcher 0.5.5 | RELEASED, UNCHANGED |
-| PDF import reliability 0.5.7 | IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING |
+| PDF import reliability 0.5.8 | IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING |
 | Phases 11B–11D | NOT STARTED |
 
 ## Phase 0 — foundation audit (complete)
@@ -327,7 +335,7 @@ Phase 11 items have not started.
 4. [x] Preserve exact matcher, offer parser, URL builder, browser navigation, and the no-false-
    `PRICE_DROP` invariant.
 
-### Phase 11B — reservation overview (not started; planned 0.5.8)
+### Phase 11B — reservation overview (not started; planned 0.5.9)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -344,7 +352,7 @@ Phase 11 items have not started.
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.9)
+### Phase 11C — property images (not started; planned 0.5.10)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -359,7 +367,7 @@ Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (not started; planned 0.5.10)
+### Phase 11D — reservation detail and price history (not started; planned 0.5.11)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,

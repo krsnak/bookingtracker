@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.8
+
+- Derive PDF hotel identity primarily from a strict, safe Booking hotel hyperlink. Its visible
+  property name is selected only when text geometrically overlaps that annotation; PDF text and
+  graphics transformation matrices are composed, covering translated, scaled, rotated, and Gmail
+  layouts.
+- Store only the canonical hotel URL without query, fragment, tracking, or sensitive parameters.
+  Confirmation, help, payment, homepage, and external links are rejected; duplicate annotations
+  for one canonical hotel are harmless, while different hotel URLs require manual review.
+- Remove the generic arbitrary-line property fallback. The safe `Your booking is confirmed at …`
+  anchor remains a fallback; Guest House-style names, stay dates, cancellation, and adults-only
+  `children=0` remain supported. A real Gmail PDF passed the public local upload E2E route.
+- No database migration or stored-reservation rewrite is required. The exact/equivalent/better
+  price matcher is unchanged.
+
 ## 0.5.7
 
 - Accept legitimate property names such as `Guest House` while rejecting only complete,

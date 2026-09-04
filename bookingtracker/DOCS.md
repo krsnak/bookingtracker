@@ -5,9 +5,9 @@ State is persisted only in `/data`: SQLite, logs, and the Booking browser profil
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
 — is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
 The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED**.
-Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.7 PDF-import
+Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.8 PDF-import
 reliability release is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**.
-Phase 11B is planned for 0.5.8, Phase 11C for 0.5.9, and Phase 11D for 0.5.10.
+Phase 11B is planned for 0.5.9, Phase 11C for 0.5.10, and Phase 11D for 0.5.11.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
@@ -65,6 +65,16 @@ equivalent, better only break an equal-price tie, followed by stable diagnostic 
 Non-orderable terms are ambiguous. Price-drop alerts name the category and a
 safe terse objective improvement. No raw DOM is stored and existing immutable snapshot JSON needs
 no migration. Papaya's dorm offer and unproven Economy/Classic alternatives remain non-comparable.
+
+Version 0.5.8 derives PDF property identity from a strict safe Booking hotel hyperlink. Visible
+property text must geometrically overlap the annotation after composition of PDF text and graphics
+transforms, including Gmail layouts. Query and fragments are removed from canonical URLs;
+confirmation, help, payment, homepage, and external links are rejected. Duplicate annotations for
+the same hotel are deduplicated, different hotel URLs require manual review, and the generic
+arbitrary-line fallback is removed. The safe confirmation anchor remains a fallback. Guest House
+names, stay dates, cancellation, adults-only `children=0`, the conservative price matcher, and
+stored reservations remain unchanged; no migration is needed. A real Gmail PDF passed the public
+local upload E2E path.
 
 Version 0.5.7 fixes the second English PDF layout without weakening conservative import. `Guest
 House` and other ordinary accommodation words remain valid property identity; only complete,

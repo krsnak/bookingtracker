@@ -33,11 +33,11 @@ def test_addon_build_context_is_self_contained() -> None:
     assert "test -f /usr/share/novnc/vnc.html" in dockerfile
     assert "test -d /usr/share/novnc/app" in dockerfile
     assert "test -d /usr/share/novnc/core" in dockerfile
-    assert 'version: "0.5.7"' in (ROOT / "config.yaml").read_text()
+    assert 'version: "0.5.8"' in (ROOT / "config.yaml").read_text()
     assert "image: ghcr.io/krsnak/bookingtracker-addon" in (ROOT / "config.yaml").read_text()
     assert "arch: [aarch64]" in (ROOT / "config.yaml").read_text()
     assert "homeassistant_api: true" in (ROOT / "config.yaml").read_text()
-    assert 'version = "0.5.7"' in (ROOT / "pyproject.toml").read_text()
+    assert 'version = "0.5.8"' in (ROOT / "pyproject.toml").read_text()
     assert "ports: {}" in (ROOT / "config.yaml").read_text()
     copies = [
         line.split(maxsplit=2)[1]
@@ -70,7 +70,7 @@ def test_prebuilt_release_configuration_is_consistent_and_secret_free() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/verify_release.py"],
         cwd=ROOT,
-        env=os.environ | {"RELEASE_VERSION": "0.5.7"},
+        env=os.environ | {"RELEASE_VERSION": "0.5.8"},
         check=False,
         capture_output=True,
         text=True,

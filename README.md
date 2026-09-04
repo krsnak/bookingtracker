@@ -1,5 +1,15 @@
 # BookingTracker
 
+Version 0.5.8 derives PDF hotel identity from a strict safe Booking hotel hyperlink. It reads a
+visible property name only when its text geometrically overlaps the annotation, composing both PDF
+text and graphics transforms so translated, scaled, rotated, and Gmail layouts remain correct.
+Canonical hotel URLs drop query and fragments; confirmation, help, payment, homepage, and external
+links are rejected. Duplicate annotations for one hotel are harmless, but different hotel URLs
+require manual review. The generic arbitrary-line fallback is removed; the safe confirmation anchor
+remains the fallback. Guest House names, stay dates, cancellation, adults-only `children=0`, and
+the conservative price matcher are unchanged. A real Gmail confirmation passed the public local
+PDF-upload E2E path; no migration or rewrite of stored reservations is needed.
+
 Version 0.5.7 fixes a second English Booking PDF layout safely. Legitimate property names such as
 `Guest House`, `Hotel`, `Hostel`, `Riad`, and `Apartment` remain valid; only complete normalized
 section headings such as Payment methods, Cancellation policy, Booking details, Price information,
@@ -126,7 +136,7 @@ the local single-user Home Assistant interface fully Czech, compact, and
 logically navigable, taking inspiration only from TripWatch's information
 density without copying its brand or source code. Phase 11A / 0.5.0 is COMPLETE after
 production validation. The 0.5.1 diagnostic intermediate step is production-validated. The
-0.5.3 parser/navigation reliability was production-validated. The 0.5.7 PDF-import reliability
+0.5.3 parser/navigation reliability was production-validated. The 0.5.8 PDF-import reliability
 release is validated locally. Phases 11B–11D remain planned.
 
 - **11A / 0.5.0 — Navigation, Czech language, and typography:** a `Rezervace`
@@ -142,13 +152,13 @@ release is validated locally. Phases 11B–11D remain planned.
   validation confirmed the expected Papaya `no_comparable_offer` after `children=0` was supplied.
   Its existing production record was already manually corrected, so this follow-up applies only to
   future or safe repeat imports; it does not alter Atlas Haven or Dar Dikrayat automatically.
-- **11B / 0.5.8 — Reservation overview:** month-grouped responsive cards with
+- **11B / 0.5.9 — Reservation overview:** month-grouped responsive cards with
   exact-match-safe comparable prices, Czech status/date presentation, and
   clear add/check-all actions.
-- **11C / 0.5.9 — Property images:** validated manual uploads, optimized local
+- **11C / 0.5.10 — Property images:** validated manual uploads, optimized local
   thumbnails under `/data`, safe relative database references, and a local
   placeholder; any Booking-derived image remains a later optional step.
-- **11D / 0.5.10 — Reservation detail and price history:** compact facts,
+- **11D / 0.5.11 — Reservation detail and price history:** compact facts,
   accepted comparable-price deltas, local history chart, reservation actions,
   and separately collapsed diagnostics.
 
@@ -156,13 +166,15 @@ The phase retains CSRF, arbitrary HA Ingress prefixes, the browser lifecycle,
 scheduler, Home Assistant/Telegram notification boundary, and the rule that a
 price is comparable only after an accepted exact, equivalent, or objectively better match.
 
-## Production validation for 0.5.7
+## Production validation for 0.5.8
 
-After installing 0.5.7 on the Raspberry Pi, first upload a current Booking confirmation PDF and
-confirm that a valid Guest House/Riad name and its cancellation state are shown without inventing a
-deadline. Only actual arrival/departure dates may become the stay; a card-method list, payment,
-cancellation, issuance, or confirmation date must not replace them. Do not save an unclear review:
-correct it manually. Then close any remote browser lease and
+After installing 0.5.8 on the Raspberry Pi, upload a current Booking confirmation PDF and verify
+that the visible hotel hyperlink provides the property name and a canonical `/hotel/...html` URL
+without query or fragment. Confirmation, payment, help, homepage, and external links must not
+become identity; different hotel links must remain for manual review. Only actual
+arrival/departure dates may become the stay; a card-method list, payment, cancellation, issuance,
+or confirmation date must not replace them. Do not save an unclear review: correct it manually.
+Then close any remote browser lease and
 run one manual check for each active reservation. Confirm the Czech flash result and refreshed
 `Poslední kontrola` fields. The STORHAUGEN sanitized fixture must remain `success`/`exact_match`
 at 1250 NOK against 1138.39 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven, and Dar

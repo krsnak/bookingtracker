@@ -476,7 +476,15 @@ cannot replace a private room, and every known booked property and rate protecti
 confirmed. The lowest tax-inclusive total among individually safe candidates wins; category order
 only breaks a price tie. Safe evidence is stored in existing immutable JSON snapshots without raw
 DOM or a migration. Papaya remains `no_comparable_offer` when its alternatives lack proof; the
-STORHAUGEN exact fixture remains exact without a false price or `PRICE_DROP`. Version 0.5.7
+STORHAUGEN exact fixture remains exact without a false price or `PRICE_DROP`. Version 0.5.8
+derives PDF property identity from a strict canonical Booking hotel hyperlink and takes its visible
+name only from geometrically overlapping text after composing PDF text and graphics transforms.
+Query/fragment-bearing canonical URLs are normalized; confirmation, help, payment, homepage, and
+external URLs are rejected. Duplicate identical hotel annotations are harmless, while different
+hotel URLs require manual review. The generic line-guessing fallback is removed; the safe
+confirmation anchor remains a fallback. A real Gmail PDF passed the in-memory public upload path;
+no migration or stored-reservation rewrite is required, and matcher/browser/scheduler logic is
+unchanged. Version 0.5.7
 accepts Guest House-style property names while rejecting only complete normalized section headings,
 supports one safe wrapped English confirmation anchor, and recognizes `Cancellation policy`
 without inferring an unknown cancellation deadline. Cancellation evidence remains conservative for
@@ -488,7 +496,7 @@ when the arrival/departure evidence is explicit. Payment, cancellation, issuance
 dates remain non-stay evidence; conflicts require manual review. Adults-only `children=0` remains
 unchanged. The real public PDF upload route was validated locally, with no migration or stored
 reservation rewrite. Reservation overview, images, and expanded detail/history are deferred
-respectively to 0.5.8, 0.5.9, and 0.5.10.
+respectively to 0.5.9, 0.5.10, and 0.5.11.
 
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every
