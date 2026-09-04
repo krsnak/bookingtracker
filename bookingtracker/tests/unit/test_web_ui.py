@@ -36,6 +36,7 @@ from app.web.presentation import (
     status_label,
 )
 from app.web.reservation_presentation import (
+    check_history_rows,
     group_reservation_cards,
     price_history_view,
     reservation_card_view,
@@ -139,13 +140,21 @@ def checkable_reservation(*, active: bool = True) -> Reservation:
 
 
 def _comparable_check(
-    reservation_id, current: str, *, status: PriceCheckStatus = PriceCheckStatus.SUCCESS
+    reservation_id,
+    current: str,
+    *,
+    classification: MatchClassification = MatchClassification.EXACT,
+    status: PriceCheckStatus = PriceCheckStatus.SUCCESS,
 ):  # noqa: ANN001
     from app.pricing.models import PriceComparison
 
     return PriceCheckRecord(
         reservation_id=reservation_id,
         status=status,
+        match_classification=classification,
+        match_result=MatchResult(
+            accepted=True, score=Decimal("1"), classification=classification
+        ),
         comparison=PriceComparison(
             comparable=True,
             booked_price=Decimal("32.00"),
@@ -185,15 +194,56 @@ def test_reservation_card_view_formats_prices_statuses_and_fallback() -> None:
         (MatchClassification.EQUIVALENT, "Ekvivalentní pokoj"),
         (MatchClassification.BETTER, "Prokazatelně lepší pokoj"),
     ):
-        classified = _comparable_check(reservation.id, "29.00").model_copy(
-            update={"match_classification": classification}
-        )
-        assert reservation_card_view(reservation, [classified], None).match_category_label == label
+        classified = _comparable_check(reservation.id, "29.00", classification=classification)
+        classified_card = reservation_card_view(reservation, [classified], None)
+        assert classified_card.match_category_label == label
+        assert classified_card.current_price_label == "29,00 EUR"
+
+
+def test_reservation_presentation_requires_accepted_match_for_every_price_surface() -> None:
+    reservation = checkable_reservation().model_copy(
+        update={"booked_total_price": Decimal("32.00"), "currency": "EUR"}
+    )
+    unsafe = _comparable_check(reservation.id, "29.00").model_copy(
+        update={"match_classification": None, "match_result": None}
+    )
+    card = reservation_card_view(reservation, [unsafe], None)
+    assert card.current_price_label is None
+    assert card.price_difference_label is None
+    assert card.match_category_label is None
+    assert price_history_view(reservation, [unsafe]).empty_label
+    assert check_history_rows(reservation, [unsafe])[0].result_label != "Porovnatelná cena"
+
+    invalid = _comparable_check(reservation.id, "29.00").model_copy(
+        update={"match_classification": "unknown"}
+    )
+    assert reservation_card_view(reservation, [invalid], None).current_price_label is None
+    assert price_history_view(reservation, [invalid]).empty_label
+
+    malformed_no_match = _comparable_check(
+        reservation.id, "29.00", status=PriceCheckStatus.NO_MATCH
+    )
+    malformed_card = reservation_card_view(reservation, [malformed_no_match], None)
+    malformed_history = check_history_rows(reservation, [malformed_no_match])[0]
+    assert malformed_card.current_price_label is None
+    assert malformed_history.result_label != "Porovnatelná cena"
+
+    earlier_unsafe = _comparable_check(reservation.id, "29.00").model_copy(
+        update={"match_classification": None, "match_result": None}
+    )
+    latest = PriceCheckRecord(reservation_id=reservation.id, status=PriceCheckStatus.NO_MATCH)
+    card_with_unsafe_history = reservation_card_view(reservation, [latest, earlier_unsafe], None)
+    assert card_with_unsafe_history.previous_price_label is None
 
 
 def test_reservation_card_view_keeps_last_known_price_explicit_and_groups_months() -> None:
     first = checkable_reservation().model_copy(
-        update={"check_in": date(2026, 9, 6), "check_out": date(2026, 9, 9)}
+        update={
+            "check_in": date(2026, 9, 6),
+            "check_out": date(2026, 9, 9),
+            "booked_total_price": Decimal("32.00"),
+            "currency": "EUR",
+        }
     )
     prior = _comparable_check(first.id, "29.00").model_copy(
         update={"checked_at": datetime(2026, 9, 1, tzinfo=UTC)}

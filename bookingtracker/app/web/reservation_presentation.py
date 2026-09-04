@@ -28,6 +28,9 @@ _MONTHS_UPPER = (
     "LISTOPAD",
     "PROSINEC",
 )
+_ACCEPTED_CLASSIFICATIONS = frozenset(
+    {MatchClassification.EXACT, MatchClassification.EQUIVALENT, MatchClassification.BETTER}
+)
 
 
 @dataclass(frozen=True)
@@ -200,10 +203,27 @@ def _status(check: PersistedPriceCheck | None) -> tuple[str | None, str]:
     return None, "neutral"
 
 
-def _last_comparable(checks: list[PersistedPriceCheck]) -> PersistedPriceCheck | None:
-    return next(
-        (check for check in checks if check.comparison and check.comparison.comparable), None
+def is_accepted_comparable(check: PersistedPriceCheck, reservation: Reservation) -> bool:
+    """Defence-in-depth UI gate for a current or historical displayed price."""
+    comparison = check.comparison
+    match = check.match_result
+    return bool(
+        comparison
+        and check.status is PriceCheckStatus.SUCCESS
+        and comparison.comparable
+        and comparison.current_price is not None
+        and comparison.currency == reservation.currency
+        and check.match_classification in _ACCEPTED_CLASSIFICATIONS
+        and match
+        and match.accepted
+        and match.classification == check.match_classification
     )
+
+
+def _last_comparable(
+    checks: list[PersistedPriceCheck], reservation: Reservation
+) -> PersistedPriceCheck | None:
+    return next((check for check in checks if is_accepted_comparable(check, reservation)), None)
 
 
 def _last_check_label(check: PersistedPriceCheck | None, now: datetime) -> str | None:
@@ -222,7 +242,7 @@ def _price_fields(
 ) -> tuple[str | None, str | None, str | None, str]:
     latest = checks[0] if checks else None
     comparison = latest.comparison if latest else None
-    if comparison and comparison.comparable and comparison.current_price is not None:
+    if latest and is_accepted_comparable(latest, reservation) and comparison:
         current = comparison.current_price
         booked = reservation.booked_total_price
         if booked is not None and comparison.currency == reservation.currency:
@@ -240,7 +260,7 @@ def _price_fields(
             difference = f"{sign}{amount}" + (f" · {sign}{pct} %" if pct is not None else "")
             tone = "success" if delta < 0 else "danger" if delta > 0 else "neutral"
             return format_money(current, reservation.currency), None, difference, tone
-    prior = _last_comparable(checks[1:] if latest else checks)
+    prior = _last_comparable(checks[1:] if latest else checks, reservation)
     if prior and prior.comparison and prior.comparison.current_price is not None:
         known_at = _local(prior.finished_at or prior.checked_at)
         known_price = format_money(prior.comparison.current_price, prior.comparison.currency)
@@ -248,8 +268,8 @@ def _price_fields(
     return None, None, None, "neutral"
 
 
-def _match_category(check: PersistedPriceCheck | None) -> str | None:
-    if not check or not check.comparison or not check.comparison.comparable:
+def _match_category(check: PersistedPriceCheck | None, reservation: Reservation) -> str | None:
+    if not check or not is_accepted_comparable(check, reservation):
         return None
     return {
         MatchClassification.EXACT: "Stejný pokoj",
@@ -302,7 +322,7 @@ def reservation_card_view(
         previous_price_label=previous,
         price_difference_label=difference,
         price_tone=price_tone,
-        match_category_label=_match_category(latest),
+        match_category_label=_match_category(latest, reservation),
         check_status_label=status,
         check_status_tone=status_tone,
         last_check_label=_last_check_label(latest, now),
@@ -344,10 +364,7 @@ def price_history_view(
     accepted = [
         check
         for check in reversed(checks)
-        if check.comparison
-        and check.comparison.comparable
-        and check.comparison.current_price is not None
-        and check.comparison.currency == reservation.currency
+        if is_accepted_comparable(check, reservation)
     ]
     if not accepted or reservation.booked_total_price is None:
         return PriceHistoryView(
@@ -371,7 +388,7 @@ def price_history_view(
             y=y_for(check.comparison.current_price),  # type: ignore[union-attr]
             price_label=format_money(check.comparison.current_price, reservation.currency),  # type: ignore[union-attr]
             date_label=format_date(_local(check.finished_at or check.checked_at)),
-            category_label=_match_category(check),
+            category_label=_match_category(check, reservation),
         )
         for index, check in enumerate(accepted)
     )
@@ -404,7 +421,7 @@ def check_history_rows(
             trigger_label=_trigger_label(check) or "Kontrola",
             result_label="Porovnatelná cena" if current else status or "Kontrola dokončena",
             room_label=room_label,
-            category_label=_match_category(check), price_label=current,
+            category_label=_match_category(check, reservation), price_label=current,
             difference_label=difference, reason_label=status if not current else None,
         ))
     return rows
