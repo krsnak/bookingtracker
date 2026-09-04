@@ -26,7 +26,8 @@ Phases 0–10 are complete. The architecture supports macOS development and
 Raspberry Pi 4 aarch64 Home Assistant production. Phase 11A / 0.5.0 is complete
 after production validation. Diagnostic 0.5.1 is production-validated. Parser
 parser/navigation reliability 0.5.3 is production-validated. The 0.5.8 PDF import reliability
-release is implementation complete with release validation pending; Phases 11B–11D are not started.
+release is implementation complete with release validation pending. Version 0.5.9 adds conservative
+availability detection; Phases 11B–11D are not started.
 
 Post-release production validation identified one import/input classification follow-up: Papaya
 confirmed that an explicit adults-only block must persist `children=0`, and that an unknown child
@@ -67,6 +68,15 @@ help, payment, homepage, and external links are rejected. Duplicate identical ho
 deduplicated, different hotel links require manual review, and the generic arbitrary-line fallback
 is removed. The safe confirmation anchor remains a fallback. No migration, stored-reservation
 rewrite, or matcher change is required.
+
+Version 0.5.9 adds `availability_unknown` only after a bounded `goto` → wait → scroll → one
+allowlisted availability CTA → wait path yields neither offer evidence nor explicit no-availability.
+The removed second `goto` is not retried; booking, payment, and confirmation controls are never
+activated. CAPTCHA/login and navigation error prevail, while concrete room/rate/current-price hints
+continue to parser classification. The state writes no price, delta, `PRICE_DROP`, or
+`CHECK_FAILED`, leaves the technical failure series unchanged, and schedules two-hour retry. The
+Comfortable and Downtown CTA was live-validated; PDF import, matcher, scheduler lock, and pricing
+are unchanged.
 
 | Scope | Status |
 | --- | --- |
@@ -335,7 +345,7 @@ Phase 11 items have not started.
 4. [x] Preserve exact matcher, offer parser, URL builder, browser navigation, and the no-false-
    `PRICE_DROP` invariant.
 
-### Phase 11B — reservation overview (not started; planned 0.5.9)
+### Phase 11B — reservation overview (not started; planned 0.5.10)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -352,7 +362,7 @@ Phase 11 items have not started.
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.10)
+### Phase 11C — property images (not started; planned 0.5.11)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -367,7 +377,7 @@ Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (not started; planned 0.5.11)
+### Phase 11D — reservation detail and price history (not started; planned 0.5.12)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,

@@ -6,8 +6,9 @@ Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dash
 — is **IN PROGRESS**. Phase 11A / 0.5.0 is **COMPLETE** after production validation.
 The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED**.
 Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.8 PDF-import
-reliability release is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**.
-Phase 11B is planned for 0.5.9, Phase 11C for 0.5.10, and Phase 11D for 0.5.11.
+reliability release is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**. Version 0.5.9
+adds conservative availability-detection reliability.
+Phase 11B is planned for 0.5.10, Phase 11C for 0.5.11, and Phase 11D for 0.5.12.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
@@ -75,6 +76,19 @@ arbitrary-line fallback is removed. The safe confirmation anchor remains a fallb
 names, stay dates, cancellation, adults-only `children=0`, the conservative price matcher, and
 stored reservations remain unchanged; no migration is needed. A real Gmail PDF passed the public
 local upload E2E path.
+
+Version 0.5.9 distinguishes an inconclusive empty Booking shell from explicit unavailability,
+non-comparable offers, and an unsupported offer structure. After `goto`, the browser waits only a
+bounded time, scrolls, clicks the single allowlisted availability CTA at most once, and waits
+again. It never activates a booking, payment, or confirmation control and no longer repeats the
+whole navigation. CAPTCHA/login and navigation failures win over lower-priority states; recognized
+offer or explicit no-availability evidence wins too. Concrete room/rate/current-price hints remain
+parser input, so an unrecognized mandatory offer structure is still `parser_error`. The empty
+shell message is “Dostupnost se nepodařilo ověřit. Booking.com pro zadaný termín nezobrazil
+nabídky ani potvrzení, že je ubytování vyprodané.” This status records no price, delta,
+`PRICE_DROP`, or `CHECK_FAILED`, retains the existing technical failure count, and retries in two
+hours. A live CTA validation covered Comfortable and Downtown; PDF import, matcher, scheduler
+lock, and price logic are unchanged.
 
 Version 0.5.7 fixes the second English PDF layout without weakening conservative import. `Guest
 House` and other ordinary accommodation words remain valid property identity; only complete,

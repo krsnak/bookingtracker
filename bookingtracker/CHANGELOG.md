@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.9
+
+- Add `availability_unknown` for a Booking page that, for the exact requested stay, shows neither
+  offers nor explicit no-availability evidence. It is distinct from `no_availability` (explicitly
+  unavailable), `no_comparable_offer` (a healthy completed check with only unsafe alternatives),
+  and `parser_error` (concrete offer evidence with an unsupported required structure).
+- Use one conservative activation path only: `goto` → bounded availability wait → scroll → one
+  allowlisted availability CTA → bounded wait. The ineffective second `goto` is removed; booking,
+  payment, and confirmation CTAs are never candidates. CAPTCHA/login and navigation errors take
+  priority, as do recognized offers and explicit no-availability. Concrete room/rate/current-price
+  hints still enter the parser and can safely become `parser_error`.
+- An empty shell now reports: “Dostupnost se nepodařilo ověřit. Booking.com pro zadaný termín
+  nezobrazil nabídky ani potvrzení, že je ubytování vyprodané.” It writes no price, delta,
+  `PRICE_DROP`, or `CHECK_FAILED`, and neither increments nor clears the technical failure series;
+  the next retry is in two hours.
+- A live CTA test for Comfortable and Downtown confirmed the one-click bounded path. PDF import,
+  exact/equivalent/better matching, the scheduler lock, and comparable-price logic are unchanged.
+
 ## 0.5.8
 
 - Derive PDF hotel identity primarily from a strict, safe Booking hotel hyperlink. Its visible

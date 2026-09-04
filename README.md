@@ -1,5 +1,19 @@
 # BookingTracker
 
+Version 0.5.9 adds `availability_unknown` for an exact Booking search that yields neither offers
+nor an explicit unavailable surface. It is not `no_availability` (explicitly unavailable),
+`no_comparable_offer` (a healthy completed check whose offers are unsafe to compare), or
+`parser_error` (concrete room/rate/current-price evidence whose required structure is unknown).
+The safe browser path is `goto` → bounded wait → scroll → one allowlisted availability CTA →
+bounded wait; the former second `goto` is removed. The CTA is clicked at most once and never comes
+from booking, payment, or confirmation controls. CAPTCHA/login and navigation errors take
+priority, as do recognized offers and explicit no-availability; concrete offer hints still go to
+the parser. An empty shell safely says: “Dostupnost se nepodařilo ověřit. Booking.com pro zadaný
+termín nezobrazil nabídky ani potvrzení, že je ubytování vyprodané.” It creates no price, delta,
+`PRICE_DROP`, or `CHECK_FAILED`, leaves the failure series unchanged, and retries in two hours.
+The Comfortable and Downtown live CTA test validated this path. PDF import, matcher, scheduler
+lock, and comparable-price logic are unchanged.
+
 Version 0.5.8 derives PDF hotel identity from a strict safe Booking hotel hyperlink. It reads a
 visible property name only when its text geometrically overlaps the annotation, composing both PDF
 text and graphics transforms so translated, scaled, rotated, and Gmail layouts remain correct.
@@ -152,13 +166,13 @@ release is validated locally. Phases 11B–11D remain planned.
   validation confirmed the expected Papaya `no_comparable_offer` after `children=0` was supplied.
   Its existing production record was already manually corrected, so this follow-up applies only to
   future or safe repeat imports; it does not alter Atlas Haven or Dar Dikrayat automatically.
-- **11B / 0.5.9 — Reservation overview:** month-grouped responsive cards with
+- **11B / 0.5.10 — Reservation overview:** month-grouped responsive cards with
   exact-match-safe comparable prices, Czech status/date presentation, and
   clear add/check-all actions.
-- **11C / 0.5.10 — Property images:** validated manual uploads, optimized local
+- **11C / 0.5.11 — Property images:** validated manual uploads, optimized local
   thumbnails under `/data`, safe relative database references, and a local
   placeholder; any Booking-derived image remains a later optional step.
-- **11D / 0.5.11 — Reservation detail and price history:** compact facts,
+- **11D / 0.5.12 — Reservation detail and price history:** compact facts,
   accepted comparable-price deltas, local history chart, reservation actions,
   and separately collapsed diagnostics.
 
@@ -166,9 +180,9 @@ The phase retains CSRF, arbitrary HA Ingress prefixes, the browser lifecycle,
 scheduler, Home Assistant/Telegram notification boundary, and the rule that a
 price is comparable only after an accepted exact, equivalent, or objectively better match.
 
-## Production validation for 0.5.8
+## Production validation for 0.5.9
 
-After installing 0.5.8 on the Raspberry Pi, upload a current Booking confirmation PDF and verify
+After installing 0.5.9 on the Raspberry Pi, upload a current Booking confirmation PDF and verify
 that the visible hotel hyperlink provides the property name and a canonical `/hotel/...html` URL
 without query or fragment. Confirmation, payment, help, homepage, and external links must not
 become identity; different hotel links must remain for manual review. Only actual
@@ -181,7 +195,9 @@ at 1250 NOK against 1138.39 NOK without `PRICE_DROP`; Papaya Hostel, Atlas Haven
 Dikrayat must safely remain non-comparable when required evidence is absent. Papaya's
 `children=0` record remains valid;
 its healthy `no_match`/`no_comparable_offer` result must not show a price, delta, `PRICE_DROP`,
-technical failure series, or an active stale `CHECK_FAILED` detail alert.
+technical failure series, or an active stale `CHECK_FAILED` detail alert. For an empty Booking
+shell, confirm the new Czech availability-unknown message, no price/delta/alert, unchanged failure
+count, and a next attempt two hours later. Do not treat that result as hotel unavailability.
 
 ```bash
 ha apps logs 96d726fc_bookingtracker | tail -n 200 | grep 'booking_check_completed'

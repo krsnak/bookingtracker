@@ -495,8 +495,15 @@ authoritative public property evidence, and recognizes English `DD Month YYYY` o
 when the arrival/departure evidence is explicit. Payment, cancellation, issuance, and confirmation
 dates remain non-stay evidence; conflicts require manual review. Adults-only `children=0` remains
 unchanged. The real public PDF upload route was validated locally, with no migration or stored
-reservation rewrite. Reservation overview, images, and expanded detail/history are deferred
-respectively to 0.5.9, 0.5.10, and 0.5.11.
+reservation rewrite. Version 0.5.9 classifies a shell that remains empty after bounded waiting,
+scroll, and one allowlisted availability CTA as `availability_unknown`; it never clicks a booking,
+payment, or confirmation control or retries the full navigation. CAPTCHA/login, navigation errors,
+recognized offers, and explicit no-availability retain priority. Concrete room/rate/current-price
+hints stay with the parser and can become `parser_error`. This inconclusive state creates no price,
+delta, `PRICE_DROP`, or `CHECK_FAILED`, preserves the failure series, and retries in two hours. The
+Comfortable and Downtown live CTA test validated it; PDF import, matcher, scheduler lock, and price
+logic are unchanged. Reservation overview, images, and expanded detail/history are deferred
+respectively to 0.5.10, 0.5.11, and 0.5.12.
 
 The presentation layer maps domain enums and internal statuses to Czech user
 text. Domain enums remain stable and are not renamed for UI purposes. Every
