@@ -78,6 +78,12 @@ from app.web.presentation import (
     format_money,
     status_label,
 )
+from app.web.reservation_presentation import (
+    check_history_rows,
+    group_reservation_cards,
+    price_history_view,
+    reservation_card_view,
+)
 from app.web.websocket_bridge import bridge_websocket_frames
 
 ROOT = Path(__file__).parent
@@ -301,15 +307,15 @@ def create_app(
 
     @app.get("/", name="dashboard")
     def dashboard(request: Request):
-        items = []
+        cards = []
         for item in reservations.list_active():
-            latest = history.latest(item.id)
-            state = actual_runner.schedules.get(item.id)
-            items.append({"reservation": item, "latest": latest, "schedule": state})
+            checks = history.list_for_reservation(item.id)
+            cards.append(reservation_card_view(item, checks, actual_runner.schedules.get(item.id)))
         return render(
             request,
             "dashboard.html",
-            items=items,
+            groups=group_reservation_cards(cards),
+            active_count=len(cards),
             browser=browser.health(),
             scheduler_running=app.state.scheduler_running,
         )
@@ -500,6 +506,9 @@ def create_app(
             request,
             "detail.html",
             reservation=item,
+            card=reservation_card_view(
+                item, checks_for_detail, actual_runner.schedules.get(item.id)
+            ),
             checks=checks_for_detail,
             alerts=[
                 alert
@@ -507,6 +516,8 @@ def create_app(
                 if not check_failed_is_superseded(alert, checks_for_detail)
             ],
             schedule=actual_runner.schedules.get(item.id),
+            price_history=price_history_view(item, checks_for_detail),
+            history_rows=check_history_rows(item, checks_for_detail),
             flash=flash,
         )
 

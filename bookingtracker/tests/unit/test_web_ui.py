@@ -35,6 +35,11 @@ from app.web.presentation import (
     format_money,
     status_label,
 )
+from app.web.reservation_presentation import (
+    group_reservation_cards,
+    price_history_view,
+    reservation_card_view,
+)
 from fastapi.testclient import TestClient
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -131,6 +136,103 @@ def checkable_reservation(*, active: bool = True) -> Reservation:
         extraction_confidence=1,
         active=active,
     )
+
+
+def _comparable_check(
+    reservation_id, current: str, *, status: PriceCheckStatus = PriceCheckStatus.SUCCESS
+):  # noqa: ANN001
+    from app.pricing.models import PriceComparison
+
+    return PriceCheckRecord(
+        reservation_id=reservation_id,
+        status=status,
+        comparison=PriceComparison(
+            comparable=True,
+            booked_price=Decimal("32.00"),
+            current_price=Decimal(current),
+            currency="EUR",
+        ),
+    )
+
+
+def test_reservation_card_view_formats_prices_statuses_and_fallback() -> None:
+    reservation = checkable_reservation().model_copy(
+        update={"booked_total_price": Decimal("32.00"), "currency": "EUR"}
+    )
+    current = _comparable_check(reservation.id, "29.00")
+    card = reservation_card_view(reservation, [current], None, now=datetime(2026, 9, 4, tzinfo=UTC))
+    assert card.current_price_label == "29,00 EUR"
+    assert card.price_difference_label == "−3,00 EUR · −9,4 %"
+    assert card.price_tone == "success"
+    assert card.has_image is False and card.image_url is None and card.property_initial == "S"
+    assert card.stay_label.endswith("1 noc")
+
+    same = reservation_card_view(reservation, [_comparable_check(reservation.id, "32.00")], None)
+    higher = reservation_card_view(reservation, [_comparable_check(reservation.id, "35.00")], None)
+    assert same.price_difference_label == "0,00 EUR · 0,0 %" and same.price_tone == "neutral"
+    assert higher.price_difference_label == "+3,00 EUR · +9,4 %" and higher.price_tone == "danger"
+
+    unavailable = reservation_card_view(
+        reservation,
+        [PriceCheckRecord(reservation_id=reservation.id, status=PriceCheckStatus.NO_AVAILABILITY)],
+        None,
+    )
+    assert unavailable.current_price_label is None
+    assert unavailable.check_status_label == "Pro termín není dostupné"
+
+    for classification, label in (
+        (MatchClassification.EXACT, "Stejný pokoj"),
+        (MatchClassification.EQUIVALENT, "Ekvivalentní pokoj"),
+        (MatchClassification.BETTER, "Prokazatelně lepší pokoj"),
+    ):
+        classified = _comparable_check(reservation.id, "29.00").model_copy(
+            update={"match_classification": classification}
+        )
+        assert reservation_card_view(reservation, [classified], None).match_category_label == label
+
+
+def test_reservation_card_view_keeps_last_known_price_explicit_and_groups_months() -> None:
+    first = checkable_reservation().model_copy(
+        update={"check_in": date(2026, 9, 6), "check_out": date(2026, 9, 9)}
+    )
+    prior = _comparable_check(first.id, "29.00").model_copy(
+        update={"checked_at": datetime(2026, 9, 1, tzinfo=UTC)}
+    )
+    latest = PriceCheckRecord(
+        reservation_id=first.id,
+        status=PriceCheckStatus.AVAILABILITY_UNKNOWN,
+        checked_at=datetime(2026, 9, 4, tzinfo=UTC),
+    )
+    card = reservation_card_view(first, [latest, prior], None)
+    assert card.current_price_label is None
+    assert card.previous_price_label and card.previous_price_label.startswith("Poslední známá cena")
+    assert card.check_status_label == "Dostupnost neověřena"
+    second = first.model_copy(
+        update={"check_in": date(2026, 9, 15), "check_out": date(2026, 9, 16)}
+    )
+    groups = group_reservation_cards([reservation_card_view(second, [], None), card])
+    assert groups[0][0] == "ZÁŘÍ 2026 · 2 rezervací"
+    assert [item.reservation.check_in for item in groups[0][1]] == [
+        date(2026, 9, 6),
+        date(2026, 9, 15),
+    ]
+
+
+def test_price_history_uses_only_safe_same_currency_prices() -> None:
+    reservation = checkable_reservation().model_copy(
+        update={"booked_total_price": Decimal("32.00"), "currency": "EUR"}
+    )
+    safe = _comparable_check(reservation.id, "29.00").model_copy(
+        update={"checked_at": datetime(2026, 9, 3, tzinfo=UTC)}
+    )
+    unavailable = PriceCheckRecord(
+        reservation_id=reservation.id, status=PriceCheckStatus.NO_AVAILABILITY
+    )
+    chart = price_history_view(reservation, [unavailable, safe])
+    assert len(chart.points) == 1
+    assert chart.points[0].price_label == "29,00 EUR"
+    assert chart.booked_y is not None and chart.path
+    assert price_history_view(reservation, [unavailable]).empty_label
 
 
 def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: ANN001
@@ -249,7 +351,7 @@ def test_dashboard_and_detail_render_czech_check_diagnostics_under_ingress(tmp_p
         dashboard = client.get("/", headers=headers)
         detail = client.get(f"/reservations/{stored.id}", headers=headers)
     assert "Kontrolu se nepodařilo dokončit" in dashboard.text
-    assert "Další pokus: 25. 8. 2026 v 5:35" in dashboard.text
+    assert "Další kontrola 25. srpna 2026 v 07:35" in dashboard.text
     assert "parser_error" not in dashboard.text and "timeout" not in dashboard.text
     assert "Poslední kontrola" in detail.text
     assert "Doba trvání: 2 s" in detail.text

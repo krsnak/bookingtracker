@@ -1,5 +1,20 @@
 # BookingTracker
 
+## Reservation card presentation
+
+The Reservation overview uses a presentation-only card view model. It groups active
+reservations by arrival month, formats Czech stay/cancellation/check labels, and exposes
+only an accepted exact/equivalent/better price as current. A newer price-less check can
+show a dated “Poslední známá cena”, never as a current result. The templates contain no
+price arithmetic or check-status interpretation.
+
+Property image storage is not implemented in this phase. The view model deliberately
+exposes `image_url`, `image_alt`, and `has_image`, but currently supplies a deterministic
+local fallback initial only. A future upload design must validate actual MIME content,
+size and dimensions; strip metadata; transcode to JPEG/WebP under a random local name;
+and remove the local file when its reservation is deleted under an explicit retention
+policy. Booking CDN hotlinks and automatic image downloading remain out of scope.
+
 State is persisted only in `/data`: SQLite, logs, and the Booking browser profile.
 
 Phases 0–10 are **COMPLETE**. Phase 11 — Czech frontend and reservation dashboard
