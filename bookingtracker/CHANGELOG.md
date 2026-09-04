@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.10
+
+- Add a responsive, month-grouped reservation dashboard with accessible whole-card detail links,
+  Czech check status badges, safe current/last-known prices, and keyboard focus treatment.
+- Add a compact reservation detail price history with a local SVG graph and a text-table
+  alternative. Only accepted exact, equivalent, or objectively better same-currency prices enter
+  the graph or history price fields.
+- Add presentation-layer defence in depth: a `comparable` comparison alone never displays a
+  current price, delta, historical price, match category, or graph point without an accepted
+  `exact`, `equivalent`, or `better` match.
+- Keep PDF import, parser, matcher, Booking navigation, core pricing, scheduler, alerts, and the
+  database schema unchanged.
+
 ## 0.5.9
 
 - Add `availability_unknown` for a Booking page that, for the exact requested stay, shows neither

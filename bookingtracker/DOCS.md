@@ -23,7 +23,9 @@ The diagnostic 0.5.1 intermediate release is **COMPLETE AND PRODUCTION-VALIDATED
 Parser/navigation reliability 0.5.3 is **PRODUCTION-VALIDATED**. The 0.5.8 PDF-import
 reliability release is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**. Version 0.5.9
 adds conservative availability-detection reliability.
-Phase 11B is planned for 0.5.10, Phase 11C for 0.5.11, and Phase 11D for 0.5.12.
+Phase 11B and 11D are **IN PROGRESS**; Phase 11C remains planned for a later local-image upload
+step. Version 0.5.10 implements overview cards, the price presentation gate, and a local SVG
+history chart. Its Home Assistant Ingress verification remains pending after release.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,
