@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
+from dataclasses import dataclass
+from urllib.parse import urlsplit
+
 from app.reservations.deterministic_parser import (
     clean_lines,
     has_conflicting_anchored_properties,
@@ -14,8 +19,6 @@ from app.reservations.deterministic_parser import (
     parse_occupancy,
     parse_payment_conditions,
     parse_prices,
-    parse_property_aliases,
-    parse_property_name,
     parse_room,
     sanitize_source_text,
 )
@@ -27,6 +30,102 @@ from app.reservations.models import (
     ReservationSource,
 )
 from app.reservations.validator import validate_activation
+
+
+@dataclass(frozen=True)
+class _PropertyIdentity:
+    property_name: str | None
+    booking_url: str | None
+    name_source: str | None
+    url_source: str | None
+    conflict: bool = False
+
+
+def _identity_tokens(value: str) -> set[str]:
+    replacements = str.maketrans(
+        {
+            "ø": "o",
+            "ł": "l",
+            "đ": "d",
+            "ð": "d",
+            "þ": "th",
+            "æ": "ae",
+            "œ": "oe",
+            "ß": "ss",
+        }
+    )
+    folded = (
+        unicodedata.normalize("NFKD", value.casefold())
+        .translate(replacements)
+        .encode("ascii", "ignore")
+        .decode()
+    )
+    return {token for token in re.split(r"[^a-z0-9]+", folded) if token}
+
+
+def _normalized_name(value: str) -> str:
+    return "".join(sorted(_identity_tokens(value)))
+
+
+def _name_supports_hotel_url(name: str, hotel_url: str) -> bool:
+    path = urlsplit(hotel_url).path
+    slug = path.rsplit("/", 1)[-1].removesuffix(".html")
+    slug_tokens = _identity_tokens(slug)
+    name_tokens = _identity_tokens(name)
+    return bool(slug_tokens) and slug_tokens <= name_tokens
+
+
+def _pdf_property_identity(
+    document: ReservationImportDocument, anchored_property: str | None, anchored_conflict: bool
+) -> _PropertyIdentity:
+    unique_urls = list(dict.fromkeys(link.canonical_url for link in document.hotel_links))
+    if len(unique_urls) > 1:
+        return _PropertyIdentity(None, None, None, None, conflict=True)
+    if not unique_urls:
+        return _PropertyIdentity(
+            anchored_property if not anchored_conflict else None,
+            parse_booking_url(clean_lines(document.text)) if not anchored_conflict else None,
+            "confirmation_anchor" if anchored_property and not anchored_conflict else None,
+            "text_canonical_url" if anchored_property and not anchored_conflict else None,
+            conflict=anchored_conflict,
+        )
+
+    hotel_url = unique_urls[0]
+    linked_names = list(
+        dict.fromkeys(
+            link.visible_text.strip()
+            for link in document.hotel_links
+            if (
+                link.canonical_url == hotel_url
+                and link.visible_text
+                and _name_supports_hotel_url(link.visible_text, hotel_url)
+            )
+        )
+    )
+    if len({_normalized_name(name) for name in linked_names}) > 1:
+        return _PropertyIdentity(None, None, None, None, conflict=True)
+    linked_name = linked_names[0] if linked_names else None
+    if anchored_conflict:
+        return _PropertyIdentity(None, None, None, None, conflict=True)
+    if linked_name:
+        if (
+            anchored_property
+            and _normalized_name(linked_name) != _normalized_name(anchored_property)
+        ):
+            return _PropertyIdentity(None, None, None, None, conflict=True)
+        return _PropertyIdentity(linked_name, hotel_url, "pdf_hotel_link_text", "pdf_hotel_link")
+    if anchored_property and _name_supports_hotel_url(anchored_property, hotel_url):
+        return _PropertyIdentity(
+            anchored_property, hotel_url, "confirmation_anchor", "pdf_hotel_link"
+        )
+    title_property = (
+        parse_anchored_property_name(clean_lines(document.document_title))
+        if document.document_title
+        else None
+    )
+    if title_property and _name_supports_hotel_url(title_property, hotel_url):
+        return _PropertyIdentity(title_property, hotel_url, "document_title", "pdf_hotel_link")
+    return _PropertyIdentity(None, hotel_url, None, "pdf_hotel_link")
 
 
 class ReservationExtractor:
@@ -57,21 +156,12 @@ class ReservationExtractor:
         cancellation_text, free_cancellation, cancellation_deadline = parse_cancellation(lines)
         meal_plan, breakfast_included = parse_meal_facts(lines)
         anchored_property = parse_anchored_property_name(lines)
-        anchored_conflict = has_conflicting_anchored_properties(lines)
-        property_name = (
-            None if anchored_conflict else (anchored_property or parse_property_name(lines))
+        identity = _pdf_property_identity(
+            document, anchored_property, has_conflicting_anchored_properties(lines)
         )
-        property_aliases = parse_property_aliases(lines, property_name)
-        # Consolidate the strongest named hotel evidence after every parser stage.
-        weak_property = property_name is None or (
-            bool(property_aliases) and len(property_name) > len(property_aliases[0]) * 2
-        )
-        if property_aliases and weak_property and not anchored_conflict:
-            previous = [property_name] if property_name else []
-            property_name, property_aliases = property_aliases[0], previous
         field_values = {
-            "property_name": property_name,
-            "booking_url": (document.uris[0] if document.uris else parse_booking_url(lines)),
+            "property_name": identity.property_name,
+            "booking_url": identity.booking_url,
             "check_in": check_in,
             "check_out": check_out,
             "adults": adults,
@@ -92,7 +182,9 @@ class ReservationExtractor:
                 if document.source is ImportDocumentSource.PDF
                 else ReservationSource.PASTED_BOOKING_CONFIRMATION
             ),
-            property_aliases=property_aliases,
+            property_aliases=[],
+            property_name_evidence=identity.name_source,
+            booking_url_evidence=identity.url_source,
             nights=parse_nights(lines),
             children=children,
             children_ages=children_ages,
@@ -111,7 +203,16 @@ class ReservationExtractor:
             source_text=sanitize_source_text(document.text),
             extraction_confidence=confidence,
             field_confidence=field_confidence,
-            warnings=warnings + date_warnings + document.warnings,
+            warnings=(
+                warnings
+                + date_warnings
+                + document.warnings
+                + (
+                    ["Konfliktní evidence ubytování vyžaduje ruční kontrolu."]
+                    if identity.conflict
+                    else []
+                )
+            ),
             ambiguous_fields=ambiguous,
         )
         validation = validate_activation(validation_seed)

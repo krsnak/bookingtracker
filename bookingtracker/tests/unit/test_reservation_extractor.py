@@ -12,7 +12,7 @@ from app.reservations.deterministic_parser import (
     parse_property_name,
 )
 from app.reservations.extractor import ReservationExtractor
-from app.reservations.import_document import ReservationImportDocument
+from app.reservations.import_document import PdfHotelLink, ReservationImportDocument
 from app.reservations.models import FieldConfidence, ImportDocumentSource
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
@@ -22,10 +22,10 @@ def extract_fixture(name: str):
     return ReservationExtractor().extract((FIXTURES / name).read_text())
 
 
-def test_extracts_papaya_confirmation_and_preserves_price_concepts() -> None:
+def test_unanchored_text_confirmation_requires_manual_property_completion() -> None:
     candidate = extract_fixture("papaya_confirmation.txt")
 
-    assert candidate.property_name == "Papaya Hostel"
+    assert candidate.property_name is None
     assert candidate.check_in == date(2026, 9, 18)
     assert candidate.check_out == date(2026, 9, 19)
     assert candidate.nights == 1
@@ -44,14 +44,14 @@ def test_extracts_papaya_confirmation_and_preserves_price_concepts() -> None:
     assert candidate.cancellation_deadline == datetime(2026, 9, 16, 23, 59)
     assert candidate.meal_plan is None
     assert candidate.breakfast_included is None
-    assert candidate.can_activate
+    assert not candidate.can_activate
     assert candidate.source_text == (FIXTURES / "papaya_confirmation.txt").read_text()
 
 
-def test_extracts_format_variation_and_leaves_unknowns_null() -> None:
+def test_unanchored_text_format_variation_preserves_other_facts_for_review() -> None:
     candidate = extract_fixture("hoenefoss_confirmation.txt")
 
-    assert candidate.property_name == "Grand Hotel Hønefoss"
+    assert candidate.property_name is None
     assert candidate.check_in == date(2026, 8, 26)
     assert candidate.check_out == date(2026, 8, 27)
     assert candidate.adults == 2
@@ -68,14 +68,14 @@ def test_extracts_format_variation_and_leaves_unknowns_null() -> None:
     assert candidate.breakfast_included is None
     assert candidate.free_cancellation is None
     assert candidate.cancellation_text is None
-    assert candidate.can_activate
+    assert not candidate.can_activate
 
 
 def test_extracts_english_confirmation_without_treating_destination_as_property() -> None:
     candidate = extract_fixture("booking_english_confirmation.txt")
 
     assert candidate.property_name == "Zajazd Fakir"
-    assert candidate.property_aliases == ["Fakir Inn"]
+    assert candidate.property_aliases == []
     assert candidate.booking_url == "https://www.booking.com/hotel/pl/zajazd-fakir.html"
     assert candidate.check_in == date(2026, 8, 25)
     assert candidate.check_out == date(2026, 8, 26)
@@ -91,7 +91,7 @@ def test_extracts_english_confirmation_without_treating_destination_as_property(
     assert candidate.payment_conditions == "Booking automatically charges card"
 
 
-def test_extracts_sahara_sands_pdf_layout_regression_without_promoting_cta() -> None:
+def test_pdf_layout_text_uses_its_confirmation_anchor_not_a_cta_or_heading() -> None:
     candidate = extract_fixture("booking_sahara_sands_synthetic.txt")
 
     assert candidate.property_name == "Sahara Sands Hotel"
@@ -167,16 +167,18 @@ def test_confirmation_anchor_keeps_guest_house_but_rejects_section_headings() ->
 
 
 def test_property_section_headings_are_whole_normalized_values_not_keywords() -> None:
-    assert parse_property_name(["Booking property: Sunrise Guest House"]) == "Sunrise Guest House"
     assert (
-        parse_property_name(["Booking property: Guest House Dar Example"])
+        parse_property_name(["Your booking is confirmed at Guest House Dar Example"])
         == "Guest House Dar Example"
     )
-    assert parse_property_name(["Booking property: Riad Example Hotel"]) == "Riad Example Hotel"
-    assert parse_property_name(["Booking property: Guest details:"]) is None
-    assert parse_property_name(["Booking property: Cancellation policy"]) is None
-    assert parse_property_name(["Booking property: Booking details"]) is None
-    assert parse_property_name(["Booking property: Price information"]) is None
+    assert (
+        parse_property_name(["Your booking is confirmed at Sunrise Guest House"])
+        == "Sunrise Guest House"
+    )
+    assert parse_property_name(["Guest details:"]) is None
+    assert parse_property_name(["Cancellation policy"]) is None
+    assert parse_property_name(["Booking details"]) is None
+    assert parse_property_name(["Price information"]) is None
 
 
 def test_wrapped_confirmation_anchor_never_absorbs_next_section_or_address() -> None:
@@ -193,6 +195,31 @@ def test_wrapped_confirmation_anchor_never_absorbs_next_section_or_address() -> 
     assert parse_anchored_property_name(
         ["Your booking is confirmed at Sample Guest House at", "Address: 15 Example Street"]
     ) is None
+
+
+def test_pdf_link_without_visible_text_uses_only_an_anchor_that_supports_its_slug() -> None:
+    document = ReservationImportDocument(
+        text="Your booking is confirmed at Sample Guest House\n"
+        "Arrival: 15 September 2026\nDeparture: 16 September 2026\n"
+        "Reservations for: 2 adults\nYour reservation: 1 night, Double Room\n"
+        "Total price EUR 61.00",
+        hotel_links=[
+            PdfHotelLink(
+                canonical_url="https://www.booking.com/hotel/ma/sample-guest-house.html",
+                visible_text=None,
+                page_number=0,
+                annotation_index=0,
+            )
+        ],
+        source=ImportDocumentSource.PDF,
+    )
+
+    candidate = ReservationExtractor().extract_document(document)
+
+    assert candidate.property_name == "Sample Guest House"
+    assert candidate.booking_url == "https://www.booking.com/hotel/ma/sample-guest-house.html"
+    assert candidate.property_name_evidence == "confirmation_anchor"
+    assert candidate.booking_url_evidence == "pdf_hotel_link"
 
 
 def test_cancellation_policy_parses_day_first_deadline() -> None:
@@ -288,7 +315,7 @@ def test_flags_competing_totals_and_does_not_block_reviewable_critical_data() ->
     assert candidate.booked_total_price == Decimal("100.00")
     assert "booked_total_price" in candidate.ambiguous_fields
     assert any("conflicting total" in warning for warning in candidate.warnings)
-    assert candidate.can_activate
+    assert not candidate.can_activate
 
 
 def test_missing_critical_fields_block_activation() -> None:
@@ -308,10 +335,8 @@ def test_missing_critical_fields_block_activation() -> None:
 def test_extracts_czech_markdown_tables_without_cross_section_price_confusion() -> None:
     candidate = extract_fixture("booking_czech_markdown_confirmation.txt")
 
-    assert candidate.property_name == "Papaya Hostel"
-    assert (
-        candidate.booking_url == "https://www.booking.com/hotel/ma/moroccan-friends-guesthouse.html"
-    )
+    assert candidate.property_name is None
+    assert candidate.booking_url == "https://www.booking.com/hotel/ma/moroccan-friends-guesthouse.html"
     assert candidate.check_in == date(2026, 9, 5)
     assert candidate.check_out == date(2026, 9, 6)
     assert candidate.nights == 1
@@ -331,7 +356,7 @@ def test_extracts_czech_markdown_tables_without_cross_section_price_confusion() 
     assert candidate.cancellation_deadline == datetime(2026, 9, 3, 23, 59)
     assert candidate.payment_conditions == "Automatická budoucí platba kartou přes Booking.com"
     assert any("rounding" in warning for warning in candidate.warnings)
-    assert candidate.can_activate
+    assert not candidate.can_activate
 
 
 def test_extracts_full_czech_gmail_markdown_without_persisting_mail_metadata() -> None:

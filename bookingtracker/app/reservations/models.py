@@ -99,6 +99,8 @@ class ReservationDraft(BaseModel):
 class ReservationCandidate(ReservationDraft):
     """Unpersisted parse result that must pass validation and user review."""
 
+    property_name_evidence: str | None = None
+    booking_url_evidence: str | None = None
     missing_critical_fields: list[str] = Field(default_factory=list)
     ambiguous_fields: list[str] = Field(default_factory=list)
     validation_errors: list[str] = Field(default_factory=list)

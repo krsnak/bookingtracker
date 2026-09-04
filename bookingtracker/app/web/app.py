@@ -439,7 +439,9 @@ def create_app(
             raw = value(name)
             return Decimal(raw) if raw else None
         try:
-            data = candidate.model_dump() | {
+            data = candidate.model_dump(
+                exclude={"property_name_evidence", "booking_url_evidence"}
+            ) | {
                 "property_name": value("property_name"), "booking_url": value("booking_url"),
                 "check_in": date.fromisoformat(value("check_in")) if value("check_in") else None,
                 "check_out": date.fromisoformat(value("check_out")) if value("check_out") else None,

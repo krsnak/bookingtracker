@@ -19,6 +19,7 @@ from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
 from app.config import AppPaths, RemoteDesktopSettings
 from app.matching.models import CandidateEvaluation, MatchClassification, MatchResult
 from app.pricing.models import CheckReasonCode, PriceCheckRecord, PriceCheckStatus
+from app.reservations.import_document import canonical_booking_hotel_url, pdf_document
 from app.reservations.models import Reservation, ReservationCandidate
 from app.scheduling.models import CheckTrigger
 from app.web.app import create_app, static_asset_revision
@@ -616,6 +617,164 @@ def _guest_house_cancellation_layout_pdf() -> bytes:
         y -= 20
     pdf.save()
     return output.getvalue()
+
+
+def _hotel_hyperlink_pdf(
+    *,
+    duplicate: bool = False,
+    rotated: bool = False,
+    text: bool = True,
+    second_hotel: bool = False,
+    gmail_graphics_transform: bool = False,
+) -> bytes:
+    """Sanitized PDF with a real hotel annotation and unrelated Booking links."""
+    output = BytesIO()
+    pdf = canvas.Canvas(output)
+    if rotated:
+        pdf.setPageRotation(90)
+    pdf.setTitle("Sanitized Booking import fixture")
+    hotel_url = (
+        "https://www.booking.com/hotel/ma/comfortable-and-downtown.html"
+        "?label=fixture"
+    )
+    if text:
+        if gmail_graphics_transform:
+            # Gmail's PDF export draws page content through a scaled/flipped
+            # graphics state while /Rect stays in page coordinates.
+            pdf.saveState()
+            pdf.translate(27.7, 1656.3)
+            pdf.scale(0.7, -0.7)
+            pdf.drawString(445.5, 701, "Comfortable and Downtown, 1min to beach")
+            pdf.restoreState()
+        else:
+            pdf.drawString(60, 790, "Comfortable and Downtown,")
+            pdf.drawString(200, 790, "1min to beach")
+    hotel_rect = (362.2, 1124.6, 830.2, 1145.6) if gmail_graphics_transform else (58, 786, 320, 804)
+    pdf.linkURL(hotel_url, hotel_rect, relative=0)
+    if duplicate:
+        pdf.linkURL(hotel_url, hotel_rect, relative=0)
+    if second_hotel:
+        pdf.drawString(60, 770, "Other Hotel")
+        pdf.linkURL(
+            "https://www.booking.com/hotel/ma/other-hotel.html",
+            (58, 766, 160, 784),
+            relative=0,
+        )
+    lines = [
+        "Arrival: 15 September 2026",
+        "Departure: 16 September 2026",
+        "Your reservation: 1 night, One-Bedroom Apartment",
+        "Reservations for: 2 adults",
+        "Breakfast included",
+        "Cancellation policy",
+        "Free cancellation until 13 September 2026 at 23:59",
+        "Total price EUR 61.00",
+    ]
+    y = 750
+    for line in lines:
+        pdf.drawString(60, y, line)
+        y -= 20
+    for index, url in enumerate(
+        [
+            "https://www.booking.com/confirmation?label=fixture",
+            "https://www.booking.com/help",
+            "https://www.booking.com/payment_transactions?label=fixture",
+            "https://www.booking.com/",
+            "https://example.test/ad",
+        ]
+    ):
+        link_y = 500 - index * 20
+        pdf.drawString(60, link_y, f"Other link {index + 1}")
+        pdf.linkURL(url, (58, link_y - 4, 150, link_y + 12), relative=0)
+    pdf.save()
+    return output.getvalue()
+
+
+def test_pdf_hotel_hyperlink_identity_is_canonical_and_geometry_scoped(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    pdf = _hotel_hyperlink_pdf()
+    document = pdf_document(pdf)
+    assert document.uris == ["https://www.booking.com/hotel/ma/comfortable-and-downtown.html"]
+    assert len(document.hotel_links) == 1
+    assert document.hotel_links[0].visible_text == "Comfortable and Downtown, 1min to beach"
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract/pdf",
+            data={"csrf_token": app.state.csrf},
+            files={"pdf": ("confirmation.pdf", pdf, "application/pdf")},
+        )
+        candidate = next(iter(app.state.pending.values()))
+
+    assert response.status_code == 200
+    assert candidate.property_name == "Comfortable and Downtown, 1min to beach"
+    assert candidate.booking_url == "https://www.booking.com/hotel/ma/comfortable-and-downtown.html"
+    assert candidate.property_name_evidence == "pdf_hotel_link_text"
+    assert candidate.booking_url_evidence == "pdf_hotel_link"
+    assert (candidate.check_in, candidate.check_out, candidate.nights) == (
+        date(2026, 9, 15),
+        date(2026, 9, 16),
+        1,
+    )
+    assert (candidate.rooms_count, candidate.adults, candidate.children) == (1, 2, 0)
+    assert candidate.room_type == "One-Bedroom Apartment"
+    assert candidate.breakfast_included is True
+    assert candidate.cancellation_deadline == datetime(2026, 9, 13, 23, 59)
+    assert (candidate.booked_total_price, candidate.currency) == (Decimal("61.00"), "EUR")
+    assert candidate.missing_critical_fields == []
+    assert "label=fixture" not in response.text
+    assert "Other link 1" not in response.text and "Other link 5" not in response.text
+
+
+def test_pdf_hotel_annotation_deduplication_rotation_and_missing_text() -> None:
+    duplicate = pdf_document(_hotel_hyperlink_pdf(duplicate=True))
+    rotated = pdf_document(_hotel_hyperlink_pdf(rotated=True))
+    without_text = pdf_document(_hotel_hyperlink_pdf(text=False))
+
+    assert len(duplicate.hotel_links) == 1
+    assert rotated.hotel_links[0].visible_text == "Comfortable and Downtown, 1min to beach"
+    assert without_text.uris == ["https://www.booking.com/hotel/ma/comfortable-and-downtown.html"]
+    assert without_text.hotel_links[0].visible_text is None
+
+
+def test_pdf_hotel_link_text_composes_the_gmail_graphics_transform() -> None:
+    document = pdf_document(_hotel_hyperlink_pdf(gmail_graphics_transform=True))
+
+    assert document.hotel_links[0].visible_text == "Comfortable and Downtown, 1min to beach"
+
+
+def test_multiple_pdf_hotel_links_require_manual_identity_review(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract/pdf",
+            data={"csrf_token": app.state.csrf},
+            files={
+                "pdf": (
+                    "confirmation.pdf",
+                    _hotel_hyperlink_pdf(second_hotel=True),
+                    "application/pdf",
+                )
+            },
+        )
+        candidate = next(iter(app.state.pending.values()))
+
+    assert response.status_code == 200
+    assert candidate.property_name is None and candidate.booking_url is None
+    assert "property_name" in candidate.missing_critical_fields
+
+
+def test_only_exact_hotel_paths_are_canonicalized() -> None:
+    assert canonical_booking_hotel_url(
+        "https://cs.booking.com/hotel/ma/comfortable-and-downtown.en-gb.html?label=fixture#top"
+    ) == "https://www.booking.com/hotel/ma/comfortable-and-downtown.html"
+    assert canonical_booking_hotel_url("https://www.booking.com/confirmation?label=fixture") is None
+    assert canonical_booking_hotel_url("https://www.booking.com/help") is None
+    assert canonical_booking_hotel_url("https://www.booking.com/") is None
 
 
 def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path) -> None:  # noqa: ANN001

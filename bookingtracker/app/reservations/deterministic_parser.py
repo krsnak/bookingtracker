@@ -59,26 +59,6 @@ _URL_PATTERN = re.compile(r"(?:https?://|mailto:|tel:|about:)[^\s<>()]+", re.IGN
 _BOOKING_HOTEL_URL = re.compile(
     r"https?://(?:[a-z]{2}\.)?(?:www\.)?booking\.com/hotel/[^\s?#)]+", re.IGNORECASE
 )
-_PROPERTY_UI_TEXT = {
-    "není vybrána žádná položka",
-    "přeskočit na obsah",
-    "booking.com",
-    "booking confirmation",
-    "booking information",
-    "your reservation",
-}
-_PROPERTY_CTA_TEXT = {
-    "zjistit více", "find out more", "upravit rezervaci", "manage booking",
-    "zaplatit hned", "pay now", "booking.com", "více informací",
-}
-_PAYMENT_CARD_BRANDS = (
-    "american express",
-    "visa",
-    "mastercard",
-    "diners club",
-    "jcb",
-    "maestro",
-)
 _PROPERTY_SECTION_HEADINGS = frozenset(
     {
         "payment methods",
@@ -239,11 +219,8 @@ def find_after_heading(lines: list[str], heading: str) -> str | None:
 
 
 def parse_property_name(lines: list[str]) -> str | None:
-    anchored = parse_anchored_property_name(lines)
-    if anchored:
-        return anchored
-    candidates = _property_candidates(lines)
-    return candidates[0][0] if candidates else None
+    """Return only explicit confirmation-anchor evidence, never a guessed line."""
+    return parse_anchored_property_name(lines)
 
 
 def parse_anchored_property_name(lines: list[str]) -> str | None:
@@ -323,81 +300,17 @@ def _safe_anchor_continuation(line: str) -> str | None:
     return value
 
 
-def _property_candidates(lines: list[str]) -> list[tuple[str, int]]:
-    """Rank explicit Booking property evidence; generic UI text can never win."""
-    candidates: dict[str, int] = {}
-
-    def add(value: str, score: int) -> None:
-        name = value.strip(" .:-")
-        if _is_property_name(name):
-            candidates[name] = max(candidates.get(name, 0), score)
-
-    for line in lines:
-        match = re.match(r"Booking property:\s*(.+)", line, re.I)
-        if match:
-            add(match.group(1), 100)
-    # Booking's hotel heading is immediately before the information section.
-    for index, line in enumerate(lines):
-        if line.casefold() in {"booking information", "informace o rezervaci"}:
-            for candidate in reversed(lines[max(0, index - 3) : index]):
-                if (
-                    _is_property_name(candidate)
-                    and not parse_date(candidate)
-                    and not parse_money(candidate)
-                    and not candidate.casefold().startswith("booking property:")
-                ):
-                    add(candidate, 100)
-    for index, _line in enumerate(lines):
-        evidence = " ".join(lines[index : index + 3])
-        match = re.search(r"\baccommodation\s+(.+?)\s+will be waiting for you\b", evidence, re.I)
-        if match:
-            add(match.group(1), 95)
-        match = re.search(r"\bubytování\s+(.+?)\s+vás bude očekávat\b", evidence, re.I)
-        if match:
-            add(match.group(1), 95)
-        title = re.search(
-            r"^PDF title:\s*(?:Gmail\s*-\s*)?.*?([A-Z][^-–—]+?)\s*"
-            r"[–—-]\s*(?:Děkujeme|Thank)",
-            evidence,
-            re.I,
-        )
-        if title:
-            add(title.group(1).replace("🛄", ""), 80)
-    for line in lines:
-        match = re.match(
-            r"(?:property|property name|accommodation|hotel|ubytování)\s*:\s*(.+)", line, re.I
-        )
-        if match:
-            add(match.group(1), 70)
-    return sorted(candidates.items(), key=lambda item: (-item[1], item[0].casefold()))
-
-
 def parse_property_aliases(lines: list[str], primary: str | None) -> list[str]:
-    """Keep explicit accommodation names as review evidence, never as a matcher shortcut."""
-    aliases: list[str] = []
-    for name, score in _property_candidates(lines):
-        if name != primary and score >= 80:
-            aliases.append(name)
-    return list(dict.fromkeys(aliases))
+    """No generic property aliases: identity requires a link or explicit anchor."""
+    del lines, primary
+    return []
 
 
 def _is_property_name(value: str) -> bool:
-    lowered = value.casefold()
-    card_brand_count = sum(brand in lowered for brand in _PAYMENT_CARD_BRANDS)
     return bool(
         value
-        and lowered not in _PROPERTY_UI_TEXT
-        and lowered not in _PROPERTY_CTA_TEXT
-        and len(value) <= 100
-        and value.count(".") <= 1
-        and card_brand_count < 2
+        and len(value) <= 160
         and not _is_property_section_heading(value)
-        and not re.search(
-            r"(?:gmail|přeskočit|vybrána žádná|booking url|^pdf title:|zrušit|storno|"
-            r"cena|nikdy vás|platb|we will never|rezervaci můžete)",
-            value,
-            re.I,
-        )
     )
 
 
