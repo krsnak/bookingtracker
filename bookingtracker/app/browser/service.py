@@ -7,6 +7,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime
 from threading import RLock
+from urllib.parse import urlsplit
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -23,6 +24,7 @@ from app.browser.session import detect_page_state
 from app.config import BrowserSettings
 
 PlaywrightFactory = Callable[[], object]
+BOOKING_HOME = "https://www.booking.com/"
 
 
 class BookingBrowserService:
@@ -95,6 +97,37 @@ class BookingBrowserService:
             self._primary_page = None
             self._state = BrowserState.STOPPED
             self._auth_state = AuthenticationState.UNKNOWN
+            return self.health()
+
+    def open_manual_session(self) -> BrowserHealth:
+        """Ensure the persistent context has a Booking page for manual recovery."""
+        with self._lock:
+            health = self.start()
+            if not health.context_running:
+                return health
+            page = self.ensure_page()
+            if page is None:
+                self._set_error("manual browser page is unavailable")
+                return self.health()
+            if not self._is_booking_page(page):
+                try:
+                    page.goto(  # type: ignore[attr-defined]
+                        BOOKING_HOME,
+                        wait_until="domcontentloaded",
+                        timeout=self._settings.navigation_timeout_ms,
+                    )
+                except (
+                    TimeoutError,
+                    PlaywrightTimeoutError,
+                    AttributeError,
+                    RuntimeError,
+                    PlaywrightError,
+                ) as error:
+                    if not self._is_booking_page(page):
+                        self._set_error(f"manual Booking page navigation failed: {error}")
+                        return self.health()
+            self._last_error = None
+            self._refresh_page_state(page)
             return self.health()
 
     def ensure_page(self) -> object | None:
@@ -293,8 +326,18 @@ class BookingBrowserService:
             return
         auth_state, state = detect_page_state(target)
         self._auth_state = auth_state
-        if state is not None:
-            self._state = state
+        self._state = state or BrowserState.READY
+
+    @staticmethod
+    def _is_booking_page(page: object) -> bool:
+        try:
+            parsed = urlsplit(str(page.url))  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            return False
+        hostname = (parsed.hostname or "").casefold()
+        return parsed.scheme in {"http", "https"} and (
+            hostname == "booking.com" or hostname.endswith(".booking.com")
+        )
 
     def _result(
         self,

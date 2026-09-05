@@ -9,7 +9,7 @@ import pytest
 from app.booking.selectors import BookingSelectors
 from app.browser.dom import OptionalLocatorReader
 from app.browser.models import AuthenticationState, BrowserState, NavigationStatus
-from app.browser.service import BookingBrowserService
+from app.browser.service import BOOKING_HOME, BookingBrowserService
 from app.config import BrowserSettings
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -229,6 +229,87 @@ def test_start_clears_a_stale_error_when_reusing_a_live_context(tmp_path: Path) 
     assert health.state is BrowserState.READY
     assert health.context_running
     assert health.last_error is None
+
+
+def test_manual_session_opens_booking_and_reuses_context_and_profile(tmp_path: Path) -> None:
+    service, context, playwright = build_service(tmp_path)
+    page = context.pages[0]
+    page.url = "about:blank"
+
+    first = service.open_manual_session()
+    first_context = service._context  # noqa: SLF001
+    second = service.open_manual_session()
+
+    assert first.state is BrowserState.READY
+    assert second.state is BrowserState.READY
+    assert page.url == BOOKING_HOME
+    assert page.goto_calls == [BOOKING_HOME]
+    assert service._context is first_context  # noqa: SLF001
+    assert len(playwright.chromium.calls) == 1
+    assert playwright.chromium.calls[0]["user_data_dir"] == str(
+        tmp_path / "booking_profile"
+    )
+
+
+def test_browser_restart_reuses_the_same_persistent_profile_path(tmp_path: Path) -> None:
+    service, context, playwright = build_service(tmp_path)
+    marker = tmp_path / "booking_profile" / "fixture-profile-marker"
+
+    service.open_manual_session()
+    marker.write_text("fixture only")
+    service.stop()
+    context.closed = False
+    for page in context.pages:
+        page.closed = False
+    restarted = service.open_manual_session()
+
+    assert restarted.context_running
+    assert marker.read_text() == "fixture only"
+    assert [call["user_data_dir"] for call in playwright.chromium.calls] == [
+        str(tmp_path / "booking_profile"),
+        str(tmp_path / "booking_profile"),
+    ]
+
+
+def test_manual_state_refresh_tracks_login_captcha_and_recovery(tmp_path: Path) -> None:
+    service, context, _ = build_service(tmp_path)
+    page = context.pages[0]
+    page.selector_counts['[data-testid="header-sign-in-button"]'] = 1
+
+    logged_out = service.open_manual_session()
+    assert logged_out.state is BrowserState.LOGIN_REQUIRED
+    assert logged_out.booking_auth_state is AuthenticationState.LOGGED_OUT
+    assert logged_out.manual_action_required
+
+    page.selector_counts.clear()
+    page.body_text = "Please complete the CAPTCHA security challenge"
+    captcha = service.refresh_state()
+    assert captcha.state is BrowserState.CAPTCHA_REQUIRED
+    assert captcha.booking_auth_state is AuthenticationState.UNKNOWN
+    assert captcha.manual_action_required
+
+    page.body_text = "Booking.com"
+    recovered = service.refresh_state()
+    assert recovered.state is BrowserState.READY
+    assert recovered.booking_auth_state is AuthenticationState.UNKNOWN
+    assert not recovered.manual_action_required
+    assert page.goto_calls == []
+
+
+def test_manual_session_rejects_non_booking_landing_after_navigation_failure(
+    tmp_path: Path,
+) -> None:
+    service, context, _ = build_service(tmp_path)
+    page = context.pages[0]
+    page.url = "https://notbooking.com/"
+    page.goto_error = RuntimeError("navigation failed")
+
+    health = service.open_manual_session()
+
+    assert health.state is BrowserState.ERROR
+    assert health.context_running
+    assert health.last_error is not None
+    assert page.goto_calls == [BOOKING_HOME]
 
 
 def test_logged_out_and_captcha_states_are_explicit(tmp_path: Path) -> None:

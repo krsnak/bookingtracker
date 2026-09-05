@@ -23,6 +23,9 @@ class ThreadBoundBookingBrowser:
     def stop(self):  # noqa: ANN201
         return self._call("stop")
 
+    def open_manual_session(self):  # noqa: ANN201
+        return self._call("open_manual_session")
+
     def navigate(self, url: str):  # noqa: ANN201
         return self._call("navigate", url)
 

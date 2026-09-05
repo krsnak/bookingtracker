@@ -62,6 +62,7 @@ class FakeRemoteRuntime:
         self.active = False
         self.display_started = False
         self.fail_start = False
+        self.start_session_calls = 0
 
     @property
     def novnc_assets_dir(self):  # noqa: ANN201
@@ -76,6 +77,7 @@ class FakeRemoteRuntime:
         return self.health()
 
     def start_session(self):  # noqa: ANN201
+        self.start_session_calls += 1
         if self.fail_start:
             raise RemoteDesktopError("remote session startup failed")
         self.active = True
@@ -104,6 +106,10 @@ class FakeBrowserService:
     def __init__(self) -> None:
         self.started = False
         self.start_calls = 0
+        self.manual_open_calls = 0
+        self.current_url = "about:blank"
+        self.context_identity = object()
+        self.stop_calls = 0
 
     def start(self) -> BrowserHealth:
         self.start_calls += 1
@@ -111,7 +117,14 @@ class FakeBrowserService:
         return self.health()
 
     def stop(self) -> BrowserHealth:
+        self.stop_calls += 1
         self.started = False
+        return self.health()
+
+    def open_manual_session(self) -> BrowserHealth:
+        self.manual_open_calls += 1
+        self.start()
+        self.current_url = "https://www.booking.com/"
         return self.health()
 
     def health(self) -> BrowserHealth:
@@ -1418,6 +1431,8 @@ def test_home_assistant_ingress_prefix_applies_to_links_forms_redirects_and_stat
             data={"csrf_token": app.state.csrf},
         )
         assert smoke.status_code == 200
+        assert "<dt>success</dt><dd>Ne</dd>" in smoke.text
+        assert "<dt>error</dt><dd>Kontrola hlásí problém</dd>" in smoke.text
 
         detail = client.get(f"/reservations/{reservation.id}", headers=headers)
         assert f'href="{prefix}/reservations/{reservation.id}/edit"' in detail.text
@@ -1519,7 +1534,7 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
     assert "aspect-ratio:16/9" in stylesheet
 
 
-def test_browser_start_opens_an_ingress_only_manual_remote_session(tmp_path) -> None:  # noqa: ANN001
+def test_browser_remote_end_to_end_acceptance_flow(tmp_path) -> None:  # noqa: ANN001
     assets = tmp_path / "novnc"
     assets.mkdir()
     (assets / "vnc.html").write_text("safe noVNC fixture")
@@ -1531,9 +1546,17 @@ def test_browser_start_opens_an_ingress_only_manual_remote_session(tmp_path) -> 
         remote_runtime=runtime,  # type: ignore[arg-type]
         browser_service=browser,  # type: ignore[arg-type]
     )
+    stored = app.state.reservations.create(checkable_reservation())
+    pipeline = ManualCheckPipeline(app.state.history, PriceCheckStatus.SUCCESS)
+    app.state.runner.checks = pipeline
     prefix = "/api/hassio_ingress/session-token"
     headers = {"X-Hass-Source": "core.ingress", "X-Ingress-Path": prefix}
     with TestClient(app) as client:
+        page = client.get("/browser", headers=headers)
+        assert "Spustit prohlížeč a otevřít ruční relaci Booking.com" in page.text
+        assert "Zastavit persistentní prohlížeč" in page.text
+        assert "Otevřít zabezpečenou vzdálenou relaci" not in page.text
+
         denied = client.post("/browser/start", data={"csrf_token": app.state.csrf})
         assert denied.status_code == 403
         assert not browser.started
@@ -1548,8 +1571,29 @@ def test_browser_start_opens_an_ingress_only_manual_remote_session(tmp_path) -> 
         assert opened.status_code == 303
         assert opened.headers["location"] == f"{prefix}/browser/remote"
         assert browser.start_calls == 1
+        assert browser.manual_open_calls == 1
+        assert browser.current_url == "https://www.booking.com/"
         assert runtime.session_active
         assert app.state.manual_lease.active
+        context_identity = browser.context_identity
+
+        active_status = client.get("/browser", headers=headers)
+        assert "Znovu otevřít aktivní ruční relaci" in active_status.text
+        assert "Ukončit pouze vzdálenou relaci" in active_status.text
+        assert "Zastavit persistentní prohlížeč" not in active_status.text
+
+        blocked_check = client.post(
+            f"/reservations/{stored.id}/check",
+            headers=headers,
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=False,
+        )
+        assert blocked_check.status_code == 303
+        blocked_detail = client.get(f"/reservations/{stored.id}", headers=headers)
+        assert "nelze spustit během otevřené vzdálené relace" in blocked_detail.text
+        assert app.state.scheduler.run_due() == []
+        assert pipeline.calls == 0
+        assert app.state.history.latest(stored.id) is None
 
         remote = client.get("/browser/remote", headers=headers)
         assert remote.status_code == 200
@@ -1557,6 +1601,17 @@ def test_browser_start_opens_an_ingress_only_manual_remote_session(tmp_path) -> 
         assert parse_qs(urlsplit(iframe_source).fragment)["path"] == [
             f"{prefix.lstrip('/')}/browser/remote/novnc/websockify"
         ]
+
+        reopened = client.post(
+            "/browser/start",
+            headers=headers,
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=False,
+        )
+        assert reopened.status_code == 303
+        assert reopened.headers["location"] == f"{prefix}/browser/remote"
+        assert browser.manual_open_calls == 1
+        assert runtime.start_session_calls == 1
 
         ended = client.post(
             "/browser/remote/end",
@@ -1567,6 +1622,21 @@ def test_browser_start_opens_an_ingress_only_manual_remote_session(tmp_path) -> 
         assert ended.status_code == 303
         assert not runtime.session_active
         assert not app.state.manual_lease.active
+        assert browser.started
+        assert browser.context_identity is context_identity
+        assert browser.stop_calls == 0
+
+        opened_again = client.post(
+            "/browser/start",
+            headers=headers,
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=False,
+        )
+        assert opened_again.status_code == 303
+        assert browser.manual_open_calls == 2
+        assert browser.start_calls == 2
+        assert runtime.start_session_calls == 2
+        assert browser.context_identity is context_identity
 
 
 def test_failed_manual_remote_start_releases_lease(tmp_path) -> None:  # noqa: ANN001

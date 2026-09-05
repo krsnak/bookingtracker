@@ -39,6 +39,7 @@ from app.alerts.service import AlertService, check_failed_is_superseded
 from app.booking.parser import BookingRateParser
 from app.browser.executor import ThreadBoundBookingBrowser
 from app.browser.lease import ManualBrowserLease
+from app.browser.models import BrowserState
 from app.browser.service import BookingBrowserService
 from app.config import AppPaths, BrowserSettings, RemoteDesktopSettings
 from app.db.connection import SQLiteDatabase
@@ -686,12 +687,12 @@ def create_app(
     @app.post("/browser/start", name="browser_start")
     def browser_start(request: Request, csrf_token: str = Form()):
         csrf(csrf_token)
+        if remote.enabled:
+            return open_manual_remote_session(request)
         if lease.active:
             raise HTTPException(
                 409, "Manual remote session is active; end it before browser actions."
             )
-        if remote.enabled:
-            return open_manual_remote_session(request)
         browser.start()
         return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 
@@ -708,11 +709,20 @@ def create_app(
     def open_manual_remote_session(request: Request) -> RedirectResponse:
         """Start the manual-only browser/noVNC session under the Ingress boundary."""
         require_remote_ingress(request)
+        if lease.active:
+            if remote.session_active:
+                return RedirectResponse(
+                    url_for_request(request, "remote_desktop"), status_code=303
+                )
+            raise HTTPException(409, "A manual remote session is already active")
         if not actual_runner.begin_manual_session(lease.acquire):
             raise HTTPException(409, "A manual remote session is already active")
         try:
-            browser_health = browser.start()
-            if not browser_health.context_running:
+            browser_health = browser.open_manual_session()
+            if (
+                not browser_health.context_running
+                or browser_health.state is BrowserState.ERROR
+            ):
                 raise RemoteDesktopError("browser context is unavailable")
             remote.start_session()
         except RemoteDesktopError as error:

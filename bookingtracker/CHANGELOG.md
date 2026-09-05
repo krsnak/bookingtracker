@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.2
+
+- Complete a single Browser/Remote acceptance flow covering persistent Chromium start and reuse,
+  a real Booking.com landing page, idempotent active-session reopen, remote-only shutdown, and a
+  second noVNC session without replacing the browser context or persistent profile path.
+- Keep manual recovery behind Home Assistant Ingress and the shared manual lease. Dynamic HTTP
+  and noVNC WebSocket prefixes remain Ingress-safe, while both scheduled checks and Check Now are
+  blocked for the complete lifetime of a remote session.
+- Refresh login and CAPTCHA state from current visible page evidence so a manually resolved
+  challenge clears the action-required status. Credentials and CAPTCHA remain strictly manual.
+- Make Browser controls and smoke results match their actual behavior, and use an isolated
+  browser smoke page for container lifecycle validation instead of the production Booking
+  availability navigation path.
+- Add regression coverage for `about:blank`, start/reuse/reopen/end/reopen, profile preservation,
+  auth/CAPTCHA recovery, failure cleanup, scheduler exclusion, and dynamic Ingress routing.
+
+## 0.6.1
+
+- Connect the Browser recovery action to the existing serialized manual lease and loopback-only
+  noVNC runtime, redirecting successful Home Assistant Ingress requests to the remote desktop.
+- Release the lease and remote child processes safely when session startup fails, and clear stale
+  browser errors after a live persistent context is successfully reused.
+
 ## 0.6.0
 
 - Compact the reservation dashboard into a responsive `auto-fill` grid, showing up to five
