@@ -15,8 +15,15 @@ import pytest
 from app.alerts.models import Alert, AlertSeverity, AlertType
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.booking.models import RateOffer
-from app.browser.models import RemoteDesktopHealth, RemoteDesktopState
+from app.browser.models import (
+    AuthenticationState,
+    BrowserHealth,
+    BrowserState,
+    RemoteDesktopHealth,
+    RemoteDesktopState,
+)
 from app.config import AppPaths, RemoteDesktopSettings
+from app.integrations.home_assistant.remote_desktop import RemoteDesktopError
 from app.matching.models import CandidateEvaluation, MatchClassification, MatchResult
 from app.pricing.models import (
     CheckDiagnosticPhase,
@@ -54,6 +61,7 @@ class FakeRemoteRuntime:
         self.enabled = True
         self.active = False
         self.display_started = False
+        self.fail_start = False
 
     @property
     def novnc_assets_dir(self):  # noqa: ANN201
@@ -68,6 +76,8 @@ class FakeRemoteRuntime:
         return self.health()
 
     def start_session(self):  # noqa: ANN201
+        if self.fail_start:
+            raise RemoteDesktopError("remote session startup failed")
         self.active = True
         return self.health()
 
@@ -88,6 +98,39 @@ class FakeRemoteRuntime:
             manual_lease_active=self.active,
             error=None,
         )
+
+
+class FakeBrowserService:
+    def __init__(self) -> None:
+        self.started = False
+        self.start_calls = 0
+
+    def start(self) -> BrowserHealth:
+        self.start_calls += 1
+        self.started = True
+        return self.health()
+
+    def stop(self) -> BrowserHealth:
+        self.started = False
+        return self.health()
+
+    def health(self) -> BrowserHealth:
+        return BrowserHealth(
+            state=BrowserState.READY if self.started else BrowserState.STOPPED,
+            process_running=self.started,
+            context_running=self.started,
+            page_available=self.started,
+            booking_auth_state=AuthenticationState.UNKNOWN,
+            manual_action_required=False,
+            last_successful_navigation=None,
+            last_error=None,
+        )
+
+    def smoke_test(self) -> dict[str, bool]:
+        return {"browser": self.started}
+
+    def refresh_state(self) -> BrowserHealth:
+        return self.health()
 
 
 class ManualCheckPipeline:
@@ -1474,6 +1517,84 @@ def test_remote_desktop_requires_ha_ingress_and_uses_dynamic_prefix(tmp_path) ->
     assert "width:100%" in stylesheet
     assert "max-width:1280px" in stylesheet
     assert "aspect-ratio:16/9" in stylesheet
+
+
+def test_browser_start_opens_an_ingress_only_manual_remote_session(tmp_path) -> None:  # noqa: ANN001
+    assets = tmp_path / "novnc"
+    assets.mkdir()
+    (assets / "vnc.html").write_text("safe noVNC fixture")
+    runtime = FakeRemoteRuntime(assets)
+    browser = FakeBrowserService()
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+        remote_runtime=runtime,  # type: ignore[arg-type]
+        browser_service=browser,  # type: ignore[arg-type]
+    )
+    prefix = "/api/hassio_ingress/session-token"
+    headers = {"X-Hass-Source": "core.ingress", "X-Ingress-Path": prefix}
+    with TestClient(app) as client:
+        denied = client.post("/browser/start", data={"csrf_token": app.state.csrf})
+        assert denied.status_code == 403
+        assert not browser.started
+        assert not app.state.manual_lease.active
+
+        opened = client.post(
+            "/browser/start",
+            headers=headers,
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=False,
+        )
+        assert opened.status_code == 303
+        assert opened.headers["location"] == f"{prefix}/browser/remote"
+        assert browser.start_calls == 1
+        assert runtime.session_active
+        assert app.state.manual_lease.active
+
+        remote = client.get("/browser/remote", headers=headers)
+        assert remote.status_code == 200
+        iframe_source = unescape(re.search(r'<iframe[^>]+src="([^"]+)"', remote.text)[1])
+        assert parse_qs(urlsplit(iframe_source).fragment)["path"] == [
+            f"{prefix.lstrip('/')}/browser/remote/novnc/websockify"
+        ]
+
+        ended = client.post(
+            "/browser/remote/end",
+            headers=headers,
+            data={"csrf_token": app.state.csrf},
+            follow_redirects=False,
+        )
+        assert ended.status_code == 303
+        assert not runtime.session_active
+        assert not app.state.manual_lease.active
+
+
+def test_failed_manual_remote_start_releases_lease(tmp_path) -> None:  # noqa: ANN001
+    assets = tmp_path / "novnc"
+    assets.mkdir()
+    (assets / "vnc.html").write_text("safe noVNC fixture")
+    runtime = FakeRemoteRuntime(assets)
+    runtime.fail_start = True
+    browser = FakeBrowserService()
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        start_browser_on_startup=False,
+        remote_runtime=runtime,  # type: ignore[arg-type]
+        browser_service=browser,  # type: ignore[arg-type]
+    )
+    headers = {
+        "X-Hass-Source": "core.ingress",
+        "X-Ingress-Path": "/api/hassio_ingress/session-token",
+    }
+    with TestClient(app) as client:
+        response = client.post(
+            "/browser/start", headers=headers, data={"csrf_token": app.state.csrf}
+        )
+        assert browser.started
+        assert not runtime.session_active
+        assert not app.state.manual_lease.active
+
+    assert response.status_code == 503
 
 
 @pytest.mark.parametrize(

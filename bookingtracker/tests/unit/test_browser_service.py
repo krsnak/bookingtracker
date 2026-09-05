@@ -219,6 +219,18 @@ def test_lifecycle_and_page_recovery(tmp_path: Path) -> None:
     assert service.status() is BrowserState.STOPPED
 
 
+def test_start_clears_a_stale_error_when_reusing_a_live_context(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    service._last_error = "safe stale diagnostic"  # noqa: SLF001
+
+    health = service.start()
+
+    assert health.state is BrowserState.READY
+    assert health.context_running
+    assert health.last_error is None
+
+
 def test_logged_out_and_captcha_states_are_explicit(tmp_path: Path) -> None:
     service, _, _ = build_service(tmp_path)
     service.start()

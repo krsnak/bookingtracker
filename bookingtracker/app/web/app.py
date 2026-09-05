@@ -135,6 +135,7 @@ def create_app(
     runner: CheckRunner | None = None,
     start_browser_on_startup: bool = True,
     remote_runtime: RemoteDesktopRuntime | None = None,
+    browser_service: BookingBrowserService | None = None,
     notification_adapter: NotificationAdapter | None = None,
 ) -> FastAPI:
     base_path = "/" + base_path.strip("/") if base_path.strip("/") else ""
@@ -147,7 +148,7 @@ def create_app(
     lease = ManualBrowserLease()
     remote = remote_runtime or RemoteDesktopRuntime(RemoteDesktopSettings.from_environment(), lease)
     browser = ThreadBoundBookingBrowser(
-        BookingBrowserService(BrowserSettings.development(resolved_paths))
+        browser_service or BookingBrowserService(BrowserSettings.development(resolved_paths))
     )
     notifier = notification_adapter or (
         HomeAssistantNotificationAdapter(settings.get_notify_entity)
@@ -689,6 +690,8 @@ def create_app(
             raise HTTPException(
                 409, "Manual remote session is active; end it before browser actions."
             )
+        if remote.enabled:
+            return open_manual_remote_session(request)
         browser.start()
         return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 
@@ -702,20 +705,27 @@ def create_app(
         browser.stop()
         return RedirectResponse(url_for_request(request, "browser_status"), status_code=303)
 
+    def open_manual_remote_session(request: Request) -> RedirectResponse:
+        """Start the manual-only browser/noVNC session under the Ingress boundary."""
+        require_remote_ingress(request)
+        if not actual_runner.begin_manual_session(lease.acquire):
+            raise HTTPException(409, "A manual remote session is already active")
+        try:
+            browser_health = browser.start()
+            if not browser_health.context_running:
+                raise RemoteDesktopError("browser context is unavailable")
+            remote.start_session()
+        except RemoteDesktopError as error:
+            remote.stop_session()
+            lease.release()
+            raise HTTPException(503, str(error)) from error
+        return RedirectResponse(url_for_request(request, "remote_desktop"), status_code=303)
+
     @app.post("/browser/remote/open", name="remote_open")
     def remote_open(request: Request, csrf_token: str = Form("")):
         require_remote_ingress(request)
         csrf(csrf_token)
-        if not actual_runner.begin_manual_session(lease.acquire):
-            raise HTTPException(409, "A manual remote session is already active")
-        try:
-            if not browser.health().context_running:
-                raise RemoteDesktopError("browser context is not active")
-            remote.start_session()
-        except RemoteDesktopError as error:
-            lease.release()
-            raise HTTPException(503, str(error)) from error
-        return RedirectResponse(url_for_request(request, "remote_desktop"), status_code=303)
+        return open_manual_remote_session(request)
 
     @app.post("/browser/remote/end", name="remote_end")
     def remote_end(request: Request, csrf_token: str = Form("")):

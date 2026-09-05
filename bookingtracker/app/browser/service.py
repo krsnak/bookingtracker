@@ -48,6 +48,8 @@ class BookingBrowserService:
     def start(self) -> BrowserHealth:
         with self._lock:
             if self._context_is_alive():
+                self._last_error = None
+                self._refresh_page_state()
                 return self.health()
             self._state = BrowserState.STARTING
             self._last_error = None
