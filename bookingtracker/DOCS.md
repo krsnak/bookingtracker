@@ -25,7 +25,10 @@ reliability release is **IMPLEMENTATION COMPLETE, RELEASE VALIDATION PENDING**. 
 adds conservative availability-detection reliability.
 Phase 11B and 11D are **IN PROGRESS**; Phase 11C remains planned for a later local-image upload
 step. Version 0.5.10 implements overview cards, the price presentation gate, and a local SVG
-history chart. Its Home Assistant Ingress verification remains pending after release.
+history chart. Version 0.6.0 makes the overview compact: a responsive `auto-fill` grid shows up to
+five concise cards on a wide panel, uses a lower placeholder strip, and preserves one readable card
+on mobile. It does not retrieve Booking images or change the price gate. Its Home Assistant Ingress
+verification remains pending after release.
 
 The planned UI remains server-rendered, local, single-user, and fully
 Ingress-aware. It will translate internal states for normal Czech presentation,

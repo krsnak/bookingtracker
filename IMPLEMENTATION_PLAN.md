@@ -345,7 +345,7 @@ Phase 11 items have not started.
 4. [x] Preserve exact matcher, offer parser, URL builder, browser navigation, and the no-false-
    `PRICE_DROP` invariant.
 
-### Phase 11B — reservation overview (in progress; planned 0.5.10)
+### Phase 11B — reservation overview (in progress; planned 0.6.0)
 
 1. [ ] Group reservations by Czech month and year of arrival.
 2. [ ] Use a responsive `repeat(auto-fill, minmax(...))` CSS grid with roughly
@@ -362,7 +362,7 @@ Phase 11 items have not started.
    time. Provide `Přidat první rezervaci` in the empty state and the top actions
    `Přidat rezervaci` and `Zkontrolovat všechny rezervace`.
 
-### Phase 11C — property images (not started; planned 0.5.11)
+### Phase 11C — property images (not started; planned 0.6.1)
 
 1. [ ] Implement manual upload first. Validate declared MIME type, decoded
    content, dimensions, and maximum size; reject path traversal and unsafe
@@ -377,7 +377,7 @@ Phase 11 items have not started.
    Cache the thumbnail locally, never hotlink, retain no cookies/tokens/signed
    URLs, and ensure image failure cannot affect a price check.
 
-### Phase 11D — reservation detail and price history (in progress; planned 0.5.12)
+### Phase 11D — reservation detail and price history (in progress; planned 0.6.2)
 
 1. [ ] Show the property image, core reservation facts, last-check state,
    booked and current comparable price, amount/percentage delta, price history,

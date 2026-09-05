@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0
+
+- Compact the reservation dashboard into a responsive `auto-fill` grid, showing up to five
+  concise cards on a wide Home Assistant panel while retaining a single readable card on mobile.
+- Reduce card image height, visual spacing, and metadata scale; long property and stay labels now
+  truncate safely rather than expanding every card.
+- Keep the existing accepted-match gate unchanged: the compact layout does not add a price, delta,
+  match category, or history value for an unsafe result.
+- Keep property images as local placeholders only; no Booking image retrieval, public-page
+  scraping, credentials, matcher, pricing, scheduler, alerts, or database changes are included.
+
 ## 0.5.10
 
 - Add a responsive, month-grouped reservation dashboard with accessible whole-card detail links,

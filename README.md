@@ -1,5 +1,9 @@
 # BookingTracker
 
+Version 0.6.0 compacts the reservation dashboard into an `auto-fill` card grid with up to five
+readable cards on a wide Home Assistant panel, a low image/placeholder strip, and denser metadata.
+It preserves the existing accepted-match price gate and adds no Booking image retrieval, scraping,
+credentials, matcher, pricing, scheduler, or database change.
 Version 0.5.10 adds the server-rendered reservation dashboard, local detail price history, and a
 presentation-only defence-in-depth gate: current and historical prices are displayed only for
 accepted `exact`, `equivalent`, or objectively `better` matches in the reservation currency.
@@ -169,13 +173,13 @@ release is validated locally. Phases 11B and 11D are **IN PROGRESS**; 11C remain
   validation confirmed the expected Papaya `no_comparable_offer` after `children=0` was supplied.
   Its existing production record was already manually corrected, so this follow-up applies only to
   future or safe repeat imports; it does not alter Atlas Haven or Dar Dikrayat automatically.
-- **11B / 0.5.10 — Reservation overview:** **IN PROGRESS** — month-grouped responsive cards with
+- **11B / 0.6.0 — Reservation overview:** **IN PROGRESS** — month-grouped responsive cards with
   exact-match-safe comparable prices, Czech status/date presentation, and
   clear add/check-all actions.
-- **11C / 0.5.11 — Property images:** validated manual uploads, optimized local
+- **11C / 0.6.1 — Property images:** validated manual uploads, optimized local
   thumbnails under `/data`, safe relative database references, and a local
   placeholder; any Booking-derived image remains a later optional step.
-- **11D / 0.5.12 — Reservation detail and price history:** **IN PROGRESS** — compact facts,
+- **11D / 0.6.2 — Reservation detail and price history:** **IN PROGRESS** — compact facts,
   accepted comparable-price deltas, local history chart, reservation actions,
   and separately collapsed diagnostics.
 
@@ -183,12 +187,12 @@ The phase retains CSRF, arbitrary HA Ingress prefixes, the browser lifecycle,
 scheduler, Home Assistant/Telegram notification boundary, and the rule that a
 price is comparable only after an accepted exact, equivalent, or objectively better match.
 
-## Production validation for 0.5.10
+## Production validation for 0.6.0
 
-After installing 0.5.10 on the Raspberry Pi, open BookingTracker through Home Assistant Ingress
-on desktop and mobile. Verify the reservation dashboard, a detail with price history, a reservation
-without a comparable price, `availability_unknown`, a technical failure, Check Now, and CSRF/Ingress
-navigation. No price or delta may appear for an unsafe result.
+After installing 0.6.0 on the Raspberry Pi, open BookingTracker through Home Assistant Ingress
+on desktop and mobile. Verify compact cards at wide and narrow widths, a detail with price history,
+a reservation without a comparable price, `availability_unknown`, a technical failure, Check Now,
+and CSRF/Ingress navigation. No price or delta may appear for an unsafe result.
 
 ## Earlier production validation for 0.5.9
 
