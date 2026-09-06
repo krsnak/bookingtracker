@@ -53,6 +53,7 @@ from app.web.reservation_presentation import (
     reservation_card_view,
 )
 from fastapi.testclient import TestClient
+from PIL import Image
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
@@ -104,6 +105,12 @@ class FakeRemoteRuntime:
             manual_lease_active=self.active,
             error=None,
         )
+
+
+def synthetic_image() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (800, 600), "red").save(output, format="PNG")
+    return output.getvalue()
 
 
 class FakeBrowserService:
@@ -644,6 +651,77 @@ def test_detail_renders_alternatives_without_delta_graph_or_price_drop(tmp_path)
     assert "PRICE_DROP" not in detail.text
     assert "−120,54 NOK" not in detail.text
     assert "Vývoj bezpečně porovnatelných cen" not in detail.text
+
+
+def test_property_image_upload_replace_remove_and_ingress_routes(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    prefix = "/api/hassio_ingress/images"
+    headers = {"X-Ingress-Path": prefix}
+    upload_url = f"/reservations/{stored.id}/image"
+    with TestClient(app) as client:
+        initial = client.get(f"/reservations/{stored.id}", headers=headers)
+        assert 'for="property-image"' in initial.text
+        assert 'accept="image/jpeg,image/png,image/webp"' in initial.text
+        assert "Přidat fotografii" in initial.text
+        forbidden = client.post(
+            upload_url,
+            data={"csrf_token": "invalid"},
+            files={"image": ("fake.jpg", synthetic_image(), "image/jpeg")},
+        )
+        assert forbidden.status_code == 403
+        response = client.post(
+            upload_url,
+            headers=headers,
+            data={"csrf_token": app.state.csrf},
+            files={"image": ("../../ignored.png", synthetic_image(), "text/plain")},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        first = app.state.reservations.get(stored.id)
+        assert first and first.property_image_id and "/" not in first.property_image_id
+        detail = client.get(f"/reservations/{stored.id}", headers=headers)
+        assert f"{prefix}/reservations/{stored.id}/image/detail" in detail.text
+        dashboard = client.get("/", headers=headers)
+        assert f"{prefix}/reservations/{stored.id}/image/thumbnail" in dashboard.text
+        thumbnail = client.get(f"/reservations/{stored.id}/image/thumbnail", headers=headers)
+        assert thumbnail.status_code == 200 and thumbnail.headers["content-type"] == "image/webp"
+        assert "immutable" in thumbnail.headers["cache-control"]
+        old_id = first.property_image_id
+        client.post(
+            upload_url,
+            data={"csrf_token": app.state.csrf},
+            files={"image": ("new.png", synthetic_image(), "image/png")},
+        )
+        replacement = app.state.reservations.get(stored.id)
+        assert replacement and replacement.property_image_id != old_id
+        assert not (tmp_path / "data" / "property_images" / f"{old_id}-detail.webp").exists()
+        client.post(f"/reservations/{stored.id}/image/remove", data={"csrf_token": app.state.csrf})
+        removed = app.state.reservations.get(stored.id)
+        assert removed and removed.property_image_id is None
+
+
+def test_invalid_property_image_preserves_existing_reference(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(checkable_reservation())
+    with TestClient(app) as client:
+        client.post(
+            f"/reservations/{stored.id}/image",
+            data={"csrf_token": app.state.csrf},
+            files={"image": ("valid.png", synthetic_image(), "image/png")},
+        )
+        before = app.state.reservations.get(stored.id)
+        client.post(
+            f"/reservations/{stored.id}/image",
+            data={"csrf_token": app.state.csrf},
+            files={"image": ("fake.jpg", b"not an image", "image/jpeg")},
+        )
+        after = app.state.reservations.get(stored.id)
+    assert before and after and after.property_image_id == before.property_image_id
 
 
 def test_detail_renders_legacy_match_result_without_room_facts(tmp_path) -> None:  # noqa: ANN001

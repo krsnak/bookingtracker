@@ -301,6 +301,15 @@ health/backoff, historical-low logic, or alerts. Per-reservation replacement
 preferences and any user-approved alternative are a later, separately reviewed
 policy.
 
+## Local property images
+
+`ImageStorage` is an adapter rooted at `AppPaths.data_dir/property_images`, never a public static
+mount. A nullable opaque image ID on a reservation selects two pre-rendered WebP variants served
+only by reservation-scoped Ingress-safe routes. Upload decodes JPEG/PNG/WebP with byte and pixel
+limits, strips metadata through transcoding, and writes both variants before the DB reference is
+updated. A replacement retains the old reference until the new one is stored; image failures never
+participate in the price-check or scheduler transaction.
+
 ### Phase 4 exact matcher
 
 `ExactReservationMatcher` is a pure domain service: it accepts a reviewed

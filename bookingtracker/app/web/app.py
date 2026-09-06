@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import secrets
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -24,7 +25,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -51,6 +52,7 @@ from app.db.repository import (
     ScheduleStateRepository,
     SettingsRepository,
 )
+from app.images.storage import ImageStorage, ImageStorageError
 from app.integrations.home_assistant.remote_desktop import RemoteDesktopError, RemoteDesktopRuntime
 from app.matching.matcher import ExactReservationMatcher
 from app.presentation import (
@@ -155,6 +157,7 @@ def create_app(
     base_path = "/" + base_path.strip("/") if base_path.strip("/") else ""
     resolved_paths = paths or AppPaths.from_environment()
     database = SQLiteDatabase(resolved_paths.database_path)
+    image_storage = ImageStorage(resolved_paths.property_images_dir)
     reservations = ReservationRepository(database)
     history = PriceCheckRepository(database)
     alerts = AlertRepository(database)
@@ -229,6 +232,7 @@ def create_app(
     app.state.base_path = base_path
     app.state.reservations = reservations
     app.state.history = history
+    app.state.image_storage = image_storage
     app.state.alerts = alerts
     app.state.settings = settings
     app.state.notification_adapter = notifier
@@ -325,7 +329,16 @@ def create_app(
         cards = []
         for item in reservations.list_active():
             checks = history.list_for_reservation(item.id)
-            cards.append(reservation_card_view(item, checks, actual_runner.schedules.get(item.id)))
+            card = reservation_card_view(item, checks, actual_runner.schedules.get(item.id))
+            if item.property_image_id:
+                card = replace(
+                    card,
+                    has_image=True,
+                    image_url=url_for_request(
+                        request, "reservation_image", reservation_id=item.id, variant="thumbnail"
+                    ) + f"?v={item.property_image_id}",
+                )
+            cards.append(card)
         return render(
             request,
             "dashboard.html",
@@ -565,8 +578,10 @@ def create_app(
             request,
             "detail.html",
             reservation=item,
-            card=reservation_card_view(
-                item, checks_for_detail, actual_runner.schedules.get(item.id)
+            card=replace(
+                reservation_card_view(item, checks_for_detail, actual_runner.schedules.get(item.id)),
+                has_image=bool(item.property_image_id),
+                image_url=(url_for_request(request, "reservation_image", reservation_id=item.id, variant="detail") + f"?v={item.property_image_id}") if item.property_image_id else None,
             ),
             checks=checks_for_detail,
             alerts=[
@@ -582,6 +597,55 @@ def create_app(
             history_rows=check_history_rows(item, checks_for_detail),
             flash=flash,
         )
+
+    @app.get("/reservations/{reservation_id}/image/{variant}", name="reservation_image")
+    def reservation_image(reservation_id: str, variant: str):
+        item = reservations.get(UUID(reservation_id))
+        if item is None or not item.property_image_id:
+            raise HTTPException(404, "Image not found")
+        try:
+            path = image_storage.path(item.property_image_id, variant)
+        except FileNotFoundError:
+            raise HTTPException(404, "Image not found") from None
+        if not path.is_file():
+            raise HTTPException(404, "Image not found")
+        return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+    @app.post("/reservations/{reservation_id}/image", name="upload_reservation_image")
+    async def upload_reservation_image(
+        request: Request,
+        reservation_id: str,
+        csrf_token: Annotated[str, Form()],
+        image: Annotated[UploadFile, File()],
+    ):
+        csrf(csrf_token)
+        item = reservations.get(UUID(reservation_id))
+        if item is None:
+            raise HTTPException(404, "Reservation not found")
+        try:
+            payload = await image.read(ImageStorage.MAX_UPLOAD_BYTES + 1)
+            identifier = image_storage.store(payload)
+        except ImageStorageError as error:
+            app.state.reservation_flash[reservation_id] = str(error)
+            return RedirectResponse(url_for_request(request, "reservation_detail", reservation_id=reservation_id), status_code=303)
+        try:
+            reservations.update(item.model_copy(update={"property_image_id": identifier}))
+        except Exception:
+            image_storage.remove(identifier)
+            raise
+        image_storage.remove(item.property_image_id)
+        await image.close()
+        return RedirectResponse(url_for_request(request, "reservation_detail", reservation_id=reservation_id), status_code=303)
+
+    @app.post("/reservations/{reservation_id}/image/remove", name="remove_reservation_image")
+    def remove_reservation_image(request: Request, reservation_id: str, csrf_token: Annotated[str, Form()]):
+        csrf(csrf_token)
+        item = reservations.get(UUID(reservation_id))
+        if item is None:
+            raise HTTPException(404, "Reservation not found")
+        image_storage.remove(item.property_image_id)
+        reservations.update(item.model_copy(update={"property_image_id": None}))
+        return RedirectResponse(url_for_request(request, "reservation_detail", reservation_id=reservation_id), status_code=303)
 
     @app.get("/reservations/{reservation_id}/edit", name="edit_reservation")
     def edit_reservation(request: Request, reservation_id: str):

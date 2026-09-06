@@ -19,6 +19,14 @@ alternative price and its preserved/better/unknown-or-different/worse evidence. 
 not create a comparable price, delta, graph point, historical low, scheduler outcome, or alert.
 Per-reservation replacement preferences and user-approved alternatives are deferred to Phase B.
 
+## Local property images
+
+One optional property photo is uploaded manually on the reservation detail. The storage adapter
+accepts decoded JPEG/PNG/WebP only, applies byte/pixel limits, strips metadata by generating WebP
+detail and thumbnail variants, and stores only an opaque ID in SQLite. Images are served through
+reservation-specific Ingress-aware routes, not `/data`. They have no matcher, pricing, scheduler,
+browser, or alert dependency.
+
 ## Reservation card presentation
 
 The Reservation overview uses a presentation-only card view model. It groups active

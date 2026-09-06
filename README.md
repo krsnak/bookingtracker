@@ -18,6 +18,13 @@ Only explicit same-property, occupancy, currency, tax-total, and private-room ev
 minimum gate; documented similarity ranks before price. Replacement preferences are intentionally
 not implemented yet.
 
+## Local property photo
+
+The reservation detail supports one manually selected JPEG, PNG, or WebP photo. BookingTracker
+validates and transcodes it into local WebP detail and thumbnail variants below its configured
+data directory; it never hotlinks, downloads, or scrapes Booking images. The image adapter is
+presentation-only and independent of matching, checks, scheduler, and alerts.
+
 Version 0.6.0 compacts the reservation dashboard into an `auto-fill` card grid with up to five
 readable cards on a wide Home Assistant panel, a low image/placeholder strip, and denser metadata.
 It preserves the existing accepted-match price gate and adds no Booking image retrieval, scraping,

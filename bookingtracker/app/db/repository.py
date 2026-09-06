@@ -120,6 +120,7 @@ class ReservationRepository:
             "currency",
             "payment_conditions",
             "price_drop_threshold_percent",
+            "property_image_id",
             "source_text",
             "extraction_confidence",
             "field_confidence_json",
@@ -168,6 +169,7 @@ class ReservationRepository:
             "currency": reservation.currency,
             "payment_conditions": reservation.payment_conditions,
             "price_drop_threshold_percent": _decimal(reservation.price_drop_threshold_percent),
+            "property_image_id": reservation.property_image_id,
             "source_text": reservation.source_text,
             "extraction_confidence": str(reservation.extraction_confidence),
             "field_confidence_json": _json(

@@ -118,6 +118,7 @@ class Reservation(ReservationDraft):
     active: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    property_image_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
     @model_validator(mode="after")
     def active_reservation_is_complete(self) -> Reservation:

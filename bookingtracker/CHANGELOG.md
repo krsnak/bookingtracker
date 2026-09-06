@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0
+
+- Add local property-photo upload from reservation detail: clicking the placeholder or existing
+  image opens the file picker, with safe replacement and separate removal.
+- Generate a larger detail variant and smaller dashboard thumbnail from JPEG/PNG/WebP input as
+  metadata-free canonical WebP under `/data`, referenced only by opaque `property_image_id` and
+  served through Ingress-safe routes. Input is limited to 10 MB and 20 Mpx decoded dimensions.
+- Keep the image adapter separate from matcher, pricing, scheduler, and alerts. It adds no Booking
+  scraping, hotlink, or CDN dependency; deactivating a reservation keeps its photo.
+
 ## 0.7.1
 
 - Add Phase A information-only alternatives for completed non-comparable checks: up to three

@@ -89,9 +89,15 @@ def test_migration_five_preserves_version_050_history_and_backfills_on_read(tmp_
                 (version,),
             )
         values = repository._values(original)  # noqa: SLF001
+        columns = tuple(  # noqa: SLF001
+            column for column in repository._columns() if column != "property_image_id"
+        )
+        statement = "INSERT INTO reservations (" + ", ".join(columns) + ") VALUES (" + ", ".join(
+            "?" for _ in columns
+        ) + ")"
         connection.execute(
-            repository._insert_sql(),  # noqa: SLF001
-            tuple(values[column] for column in repository._columns()),  # noqa: SLF001
+            statement,
+            tuple(values[column] for column in columns),
         )
         connection.execute(
             """INSERT INTO price_checks (
@@ -160,9 +166,15 @@ def test_migration_six_preserves_version_051_database(tmp_path) -> None:  # noqa
                 (version,),
             )
         values = repository._values(original)  # noqa: SLF001
+        columns = tuple(  # noqa: SLF001
+            column for column in repository._columns() if column != "property_image_id"
+        )
+        statement = "INSERT INTO reservations (" + ", ".join(columns) + ") VALUES (" + ", ".join(
+            "?" for _ in columns
+        ) + ")"
         connection.execute(
-            repository._insert_sql(),  # noqa: SLF001
-            tuple(values[column] for column in repository._columns()),  # noqa: SLF001
+            statement,
+            tuple(values[column] for column in columns),
         )
         connection.execute(
             """INSERT INTO price_checks (
@@ -181,6 +193,27 @@ def test_migration_six_preserves_version_051_database(tmp_path) -> None:  # noqa
     assert loaded.safe_error_detail == "safe legacy detail"
     assert loaded.consecutive_failure_count == 4
     assert loaded.diagnostic_phase is None
+
+
+def test_migration_seven_adds_nullable_property_image_id(tmp_path) -> None:  # noqa: ANN001
+    database = SQLiteDatabase(tmp_path / "pre-image.db")
+    with database.transaction() as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        for version, sql in MIGRATIONS[:6]:
+            connection.executescript(sql)
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, '2026-08-24T00:00:00+00:00')", (version,)
+            )
+    database.migrate()
+    with database.transaction() as connection:
+        column = next(
+            row
+            for row in connection.execute("PRAGMA table_info(reservations)")
+            if row["name"] == "property_image_id"
+        )
+    assert column["notnull"] == 0
 
 
 def test_pre_room_facts_snapshot_and_match_result_remain_readable(tmp_path) -> None:  # noqa: ANN001

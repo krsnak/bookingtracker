@@ -27,6 +27,10 @@ class AppPaths:
     def database_path(self) -> Path:
         return self.data_dir / "bookingtracker.db"
 
+    @property
+    def property_images_dir(self) -> Path:
+        return self.data_dir / "property_images"
+
 
 @dataclass(frozen=True)
 class BrowserSettings:

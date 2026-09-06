@@ -148,4 +148,5 @@ ALTER TABLE price_checks ADD COLUMN safe_error_detail TEXT;
 ALTER TABLE price_checks ADD COLUMN consecutive_failure_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE price_checks ADD COLUMN next_check_at TEXT;"""),
     (6, """ALTER TABLE price_checks ADD COLUMN diagnostic_phase TEXT;"""),
+    (7, """ALTER TABLE reservations ADD COLUMN property_image_id TEXT;"""),
 ]

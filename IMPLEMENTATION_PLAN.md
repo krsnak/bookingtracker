@@ -18,6 +18,14 @@ currency, tax-total, and private-room safety; price ranks only after documented 
 Replacement preferences and user-approved alternatives remain Phase B and need separate policy
 review.
 
+## Phase 11C local image workflow
+
+Manual local image upload is implemented as a presentation-only adapter: validated/transcoded
+detail and thumbnail WebP files live under the configured data directory, with no hotlink or
+Booking scraping. It is independent from price checking. Physical reservation deletion does not
+currently exist; a future delete must call the same image cleanup adapter, while deactivation
+retains the image.
+
 ## Corrective import releases 0.4.1–0.4.3
 
 Added CTA-resistant property evidence scoring, Czech split-line cancellation/payment parsing,
