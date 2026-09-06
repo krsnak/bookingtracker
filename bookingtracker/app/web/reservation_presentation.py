@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
+from app.matching.alternatives import AlternativeOffer, AlternativeOfferEvaluator
 from app.matching.models import MatchClassification
 from app.pricing.models import PersistedPriceCheck, PriceCheckStatus
 from app.reservations.models import Reservation
@@ -55,6 +56,7 @@ class ReservationCardView:
     last_check_label: str | None
     check_trigger_label: str | None
     next_check_label: str | None
+    alternative_count: int = 0
     image_url: str | None = None
     image_alt: str | None = None
     has_image: bool = False
@@ -88,6 +90,16 @@ class CheckHistoryRowView:
     price_label: str | None
     difference_label: str | None
     reason_label: str | None
+
+
+@dataclass(frozen=True)
+class AlternativeOfferView:
+    room_name: str
+    price_label: str
+    preserved: tuple[str, ...]
+    better: tuple[str, ...]
+    unknown_or_different: tuple[str, ...]
+    worse: tuple[str, ...]
 
 
 def _plural_nights(nights: int) -> str:
@@ -278,6 +290,31 @@ def _match_category(check: PersistedPriceCheck | None, reservation: Reservation)
     }.get(check.match_classification)
 
 
+def alternative_offer_views(
+    reservation: Reservation, check: PersistedPriceCheck | None
+) -> tuple[AlternativeOfferView, ...]:
+    """Prepare informational alternatives only after an unaccepted match result."""
+    if not check or check.status not in {PriceCheckStatus.NO_MATCH, PriceCheckStatus.AMBIGUOUS}:
+        return ()
+    if check.match_result and check.match_result.accepted:
+        return ()
+    alternatives = AlternativeOfferEvaluator().evaluate(
+        reservation, getattr(check, "rate_offers", [])
+    )
+    return tuple(_alternative_view(item) for item in alternatives)
+
+
+def _alternative_view(item: AlternativeOffer) -> AlternativeOfferView:
+    return AlternativeOfferView(
+        room_name=item.rate.room_name,
+        price_label=format_money(item.rate.current_price, item.rate.currency),
+        preserved=tuple(item.preserved),
+        better=tuple(item.better),
+        unknown_or_different=tuple(item.unknown_or_different),
+        worse=tuple(item.worse),
+    )
+
+
 def reservation_card_view(
     reservation: Reservation,
     checks: list[PersistedPriceCheck],
@@ -307,6 +344,7 @@ def reservation_card_view(
     else:
         next_label = None
     cancellation_label, cancellation_tone = _cancellation(reservation, now)
+    alternatives = alternative_offer_views(reservation, latest)
     return ReservationCardView(
         reservation=reservation,
         property_name=name,
@@ -328,6 +366,7 @@ def reservation_card_view(
         last_check_label=_last_check_label(latest, now),
         check_trigger_label=_trigger_label(latest),
         next_check_label=next_label,
+        alternative_count=len(alternatives),
         image_url=None,
         image_alt=f"Ilustrační obrázek pro {name}",
         has_image=False,
@@ -361,20 +400,19 @@ def price_history_view(
     reservation: Reservation, checks: list[PersistedPriceCheck]
 ) -> PriceHistoryView:
     """Build an SVG-ready graph from accepted, same-currency prices only."""
-    accepted = [
-        check
-        for check in reversed(checks)
-        if is_accepted_comparable(check, reservation)
-    ]
+    accepted = [check for check in reversed(checks) if is_accepted_comparable(check, reservation)]
     if not accepted or reservation.booked_total_price is None:
         return PriceHistoryView(
-            points=(), path=None, booked_y=None,
+            points=(),
+            path=None,
+            booked_y=None,
             booked_price_label=format_money(reservation.booked_total_price, reservation.currency),
             empty_label="Zatím není k dispozici žádná bezpečně porovnatelná cena.",
         )
     prices = [check.comparison.current_price for check in accepted if check.comparison]
-    minimum, maximum = min(prices + [reservation.booked_total_price]), max(
-        prices + [reservation.booked_total_price]
+    minimum, maximum = (
+        min(prices + [reservation.booked_total_price]),
+        max(prices + [reservation.booked_total_price]),
     )
     spread = maximum - minimum or Decimal("1")
 
@@ -416,12 +454,16 @@ def check_history_rows(
             if check.match_result and check.match_result.matched_rate
             else None
         )
-        rows.append(CheckHistoryRowView(
-            when_label=_last_check_label(check, datetime.now(UTC)) or "Neuvedeno",
-            trigger_label=_trigger_label(check) or "Kontrola",
-            result_label="Porovnatelná cena" if current else status or "Kontrola dokončena",
-            room_label=room_label,
-            category_label=_match_category(check, reservation), price_label=current,
-            difference_label=difference, reason_label=status if not current else None,
-        ))
+        rows.append(
+            CheckHistoryRowView(
+                when_label=_last_check_label(check, datetime.now(UTC)) or "Neuvedeno",
+                trigger_label=_trigger_label(check) or "Kontrola",
+                result_label="Porovnatelná cena" if current else status or "Kontrola dokončena",
+                room_label=room_label,
+                category_label=_match_category(check, reservation),
+                price_label=current,
+                difference_label=difference,
+                reason_label=status if not current else None,
+            )
+        )
     return rows

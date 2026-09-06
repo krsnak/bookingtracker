@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1
+
+- Add Phase A information-only alternatives for completed non-comparable checks: up to three
+  closest safe alternatives, deterministically ranked by documented similarity with price only as
+  a tie-breaker. They are not comparable, never create `PRICE_DROP`, and stay outside the main
+  price graph, historical lows, scheduler semantics, and alerts.
+- Keep multi-room alternatives disabled. Replacement preferences and user-approved alternatives
+  remain Phase B.
+
 ## 0.7.0
 
 - Add AI-assisted reservation import through one untrusted, versioned JSON document (`schema_version`

@@ -15,6 +15,7 @@ import pytest
 from app.alerts.models import Alert, AlertSeverity, AlertType
 from app.alerts.notifications import HomeAssistantNotificationAdapter
 from app.booking.models import RateOffer
+from app.booking.room_facts import extract_room_facts
 from app.browser.models import (
     AuthenticationState,
     BrowserHealth,
@@ -28,6 +29,7 @@ from app.matching.models import CandidateEvaluation, MatchClassification, MatchR
 from app.pricing.models import (
     CheckDiagnosticPhase,
     CheckReasonCode,
+    PersistedPriceCheck,
     PriceCheckRecord,
     PriceCheckStatus,
 )
@@ -44,6 +46,7 @@ from app.web.presentation import (
     status_label,
 )
 from app.web.reservation_presentation import (
+    alternative_offer_views,
     check_history_rows,
     group_reservation_cards,
     price_history_view,
@@ -209,9 +212,7 @@ def _comparable_check(
         reservation_id=reservation_id,
         status=status,
         match_classification=classification,
-        match_result=MatchResult(
-            accepted=True, score=Decimal("1"), classification=classification
-        ),
+        match_result=MatchResult(accepted=True, score=Decimal("1"), classification=classification),
         comparison=PriceComparison(
             comparable=True,
             booked_price=Decimal("32.00"),
@@ -340,6 +341,42 @@ def test_price_history_uses_only_safe_same_currency_prices() -> None:
     assert chart.points[0].price_label == "29,00 EUR"
     assert chart.booked_y is not None and chart.path
     assert price_history_view(reservation, [unavailable]).empty_label
+
+
+def test_alternatives_are_information_only_and_not_price_surfaces() -> None:
+    item = checkable_reservation().model_copy(
+        update={"room_type": "Double Room with Balcony and Sea View"}
+    )
+    offer = RateOffer(
+        property_name="STORHAUGEN GARD",
+        room_name="Classic Double Room with Balcony",
+        normalized_room_name="classic double room with balcony",
+        adults=2,
+        children=0,
+        current_price=Decimal("1200"),
+        currency="NOK",
+        taxes_included=True,
+        room_facts=extract_room_facts("Classic Double Room with Balcony"),
+        source_row_text="sanitized",
+        source_url="https://example.test",
+        scrape_timestamp=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    no_match = PersistedPriceCheck(
+        reservation_id=item.id,
+        status=PriceCheckStatus.NO_MATCH,
+        rate_offers=[offer],
+    )
+
+    alternatives = alternative_offer_views(item, no_match)
+    card = reservation_card_view(item, [no_match], None)
+
+    assert len(alternatives) == 1
+    assert alternatives[0].price_label == "1 200,00 NOK"
+    assert "Výhled není potvrzen" in alternatives[0].unknown_or_different
+    assert card.alternative_count == 1
+    assert card.current_price_label is None
+    assert card.price_difference_label is None
+    assert price_history_view(item, [no_match]).empty_label
 
 
 def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: ANN001
@@ -499,8 +536,7 @@ def test_detail_renders_availability_unknown_without_failure_claims(tmp_path) ->
 
     assert "Dostupnost se nepodařilo ověřit" in detail.text
     assert (
-        "Booking.com pro zadaný termín nezobrazil nabídky ani potvrzení, že je ubytování "
-        "vyprodané."
+        "Booking.com pro zadaný termín nezobrazil nabídky ani potvrzení, že je ubytování vyprodané."
     ) in detail.text
     assert "Stav: availability_unknown" in detail.text
     assert "Důvod: availability_unknown" in detail.text
@@ -530,6 +566,7 @@ def test_detail_displays_safe_equivalent_or_better_room_evidence(tmp_path) -> No
         currency="NOK",
         free_cancellation=True,
         taxes_included=True,
+        room_facts=extract_room_facts("Jiný dvoulůžkový pokoj s balkonem"),
         source_row_text="sanitized",
         source_url="https://example.test",
         scrape_timestamp=datetime(2026, 9, 1, tzinfo=UTC),
@@ -566,6 +603,47 @@ def test_detail_displays_safe_equivalent_or_better_room_evidence(tmp_path) -> No
     assert "Shoda: Lepší nabídka" in detail.text
     assert "Nalezený pokoj: Jiný dvoulůžkový pokoj s balkonem" in detail.text
     assert "Objektivní zlepšení: balcony" in detail.text
+
+
+def test_detail_renders_alternatives_without_delta_graph_or_price_drop(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(
+        checkable_reservation().model_copy(
+            update={"room_type": "Double Room with Balcony and Sea View"}
+        )
+    )
+    offer = RateOffer(
+        property_name="STORHAUGEN GARD",
+        room_name="Classic Double Room with Balcony",
+        normalized_room_name="classic double room with balcony",
+        adults=2,
+        children=0,
+        current_price=Decimal("1200"),
+        currency="NOK",
+        taxes_included=True,
+        room_facts=extract_room_facts("Classic Double Room with Balcony"),
+        source_row_text="sanitized",
+        source_url="https://example.test",
+        scrape_timestamp=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    app.state.history.create(
+        PriceCheckRecord(reservation_id=stored.id, status=PriceCheckStatus.NO_MATCH), [offer]
+    )
+
+    with TestClient(app) as client:
+        dashboard = client.get("/")
+        detail = client.get(f"/reservations/{stored.id}")
+
+    assert "1 možná alternativa" in dashboard.text
+    assert "Možné alternativy" in detail.text
+    assert "Cena nabídky: <strong>1 200,00 NOK</strong>" in detail.text
+    assert "Tato nabídka není bezpečně porovnatelná." in detail.text
+    assert "Výhled není potvrzen" in detail.text
+    assert "PRICE_DROP" not in detail.text
+    assert "−120,54 NOK" not in detail.text
+    assert "Vývoj bezpečně porovnatelných cen" not in detail.text
 
 
 def test_detail_renders_legacy_match_result_without_room_facts(tmp_path) -> None:  # noqa: ANN001
@@ -892,10 +970,7 @@ def _hotel_hyperlink_pdf(
     if rotated:
         pdf.setPageRotation(90)
     pdf.setTitle("Sanitized Booking import fixture")
-    hotel_url = (
-        "https://www.booking.com/hotel/ma/comfortable-and-downtown.html"
-        "?label=fixture"
-    )
+    hotel_url = "https://www.booking.com/hotel/ma/comfortable-and-downtown.html?label=fixture"
     if text:
         if gmail_graphics_transform:
             # Gmail's PDF export draws page content through a scaled/flipped
@@ -1028,9 +1103,12 @@ def test_multiple_pdf_hotel_links_require_manual_identity_review(tmp_path) -> No
 
 
 def test_only_exact_hotel_paths_are_canonicalized() -> None:
-    assert canonical_booking_hotel_url(
-        "https://cs.booking.com/hotel/ma/comfortable-and-downtown.en-gb.html?label=fixture#top"
-    ) == "https://www.booking.com/hotel/ma/comfortable-and-downtown.html"
+    assert (
+        canonical_booking_hotel_url(
+            "https://cs.booking.com/hotel/ma/comfortable-and-downtown.en-gb.html?label=fixture#top"
+        )
+        == "https://www.booking.com/hotel/ma/comfortable-and-downtown.html"
+    )
     assert canonical_booking_hotel_url("https://www.booking.com/confirmation?label=fixture") is None
     assert canonical_booking_hotel_url("https://www.booking.com/help") is None
     assert canonical_booking_hotel_url("https://www.booking.com/") is None
@@ -1315,7 +1393,10 @@ def test_pdf_upload_renders_guest_house_cancellation_policy(tmp_path) -> None:  
     ],
 )
 def test_review_cancellation_display_is_explicit_and_never_guesses_deadline(
-    tmp_path, cancellation_lines, expected, forbidden  # noqa: ANN001
+    tmp_path,
+    cancellation_lines,
+    expected,
+    forbidden,  # noqa: ANN001
 ) -> None:
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False

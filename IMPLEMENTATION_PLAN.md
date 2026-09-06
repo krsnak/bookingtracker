@@ -8,6 +8,16 @@ responsible for deterministic validation, review, persistence, matching, and pri
 The normal UI does not offer direct PDF parsing; the legacy parser remains internal only for
 compatibility and tests.
 
+## Alternative-offer Phase A
+
+For an unavailable unique room, BookingTracker may show one to three safe,
+informational alternatives from the same completed availability check. This layer is beside,
+not inside, the `exact → equivalent → better` matcher: an alternative has no comparable price,
+delta, graph point, historical low, or alert. It requires property, occupancy, room-count,
+currency, tax-total, and private-room safety; price ranks only after documented similarity.
+Replacement preferences and user-approved alternatives remain Phase B and need separate policy
+review.
+
 ## Corrective import releases 0.4.1–0.4.3
 
 Added CTA-resistant property evidence scoring, Czech split-line cancellation/payment parsing,

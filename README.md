@@ -9,6 +9,15 @@ correction before activation, persists the reviewed facts, and retains the exist
 and price-safety rules. It neither uploads nor parses a PDF in the normal UI. The downloadable
 prompt and example JSON define schema version 1; unknown facts must be `null`, never inferred.
 
+## Information-only alternative offers
+
+If an exact/equivalent/objectively better room cannot be proven, the reservation detail can show
+up to three **possible alternatives** from the same Booking availability check. They are clearly
+not comparable prices: they create no delta, percentage, graph point, historical low, or alert.
+Only explicit same-property, occupancy, currency, tax-total, and private-room evidence passes the
+minimum gate; documented similarity ranks before price. Replacement preferences are intentionally
+not implemented yet.
+
 Version 0.6.0 compacts the reservation dashboard into an `auto-fill` card grid with up to five
 readable cards on a wide Home Assistant panel, a low image/placeholder strip, and denser metadata.
 It preserves the existing accepted-match price gate and adds no Booking image retrieval, scraping,

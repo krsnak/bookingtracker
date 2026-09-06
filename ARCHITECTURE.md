@@ -287,6 +287,20 @@ like-for-like totals in the same currency and records a delta. A failed
 navigation, parsing error, logged-out state, CAPTCHA, or no match is stored
 as its own status, never as a price.
 
+### Information-only alternatives
+
+When no offer is accepted, `AlternativeOfferEvaluator` may derive up to three
+same-property, same-search, same-currency, tax-inclusive options from the
+existing immutable sanitized offer snapshots. It rejects wrong occupancy or
+room count, dorm beds for a booked private room, and any explicit downgrade of
+booked meal, cancellation, or payment protections. It ranks documented
+similarity before price and exposes preserved, objectively better, unknown or
+different, and worse room evidence. These alternatives are presentation data
+only: they never enter the comparable-price service, price history, scheduler
+health/backoff, historical-low logic, or alerts. Per-reservation replacement
+preferences and any user-approved alternative are a later, separately reviewed
+policy.
+
 ### Phase 4 exact matcher
 
 `ExactReservationMatcher` is a pure domain service: it accepts a reviewed

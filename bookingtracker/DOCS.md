@@ -8,6 +8,17 @@ BookingTracker validates and canonicalizes the object deterministically, then pr
 no uploaded JSON or confirmation PDF is persisted. Matching and pricing consume only the reviewed
 reservation facts and retain their existing exact-comparability gate.
 
+## Information-only alternatives
+
+For a completed `no_match` or `ambiguous` check, the presentation layer can derive at most three
+safe alternatives from the existing immutable `RateOffer` snapshots. Their evaluator is pure and
+deterministic; it requires the same property, requested occupancy, one safely evidenced room,
+currency, and tax-inclusive total, and rejects dorm/private-room substitutions and explicit
+meal/cancellation/payment downgrades. Similarity is ranked before price. The UI renders only the
+alternative price and its preserved/better/unknown-or-different/worse evidence. Alternatives do
+not create a comparable price, delta, graph point, historical low, scheduler outcome, or alert.
+Per-reservation replacement preferences and user-approved alternatives are deferred to Phase B.
+
 ## Reservation card presentation
 
 The Reservation overview uses a presentation-only card view model. It groups active
