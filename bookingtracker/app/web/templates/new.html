@@ -1,8 +1,7 @@
 {% extends "base.html" %}{% from "components.html" import back_link %}{% block content %}
 {{ back_link(url('dashboard'), 'Zpět na rezervace') }}
 <h1>Přidat rezervaci</h1>{% if error %}<p class="error">{{ error }}</p>{% endif %}
-<h2>Nahrát PDF potvrzení z Booking.com</h2><p>Preferovaný postup: Gmail → Tisk → Uložit jako PDF. Soubor se zpracovává pouze v paměti.</p>
-<form method="post" enctype="multipart/form-data" action="{{ url('extract_reservation_pdf') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>PDF potvrzení z Booking.com <input type="file" name="pdf" accept="application/pdf,.pdf" required></label><button>Načíst PDF</button></form>
-<h2>Vložit text potvrzení</h2><p>Náhradní možnost, pokud PDF není k dispozici.</p>
-<form method="post" action="{{ url('extract_reservation') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label for="source_text">Vložte potvrzení rezervace z Booking.com</label><textarea id="source_text" name="source_text" required></textarea><button>Načíst rezervaci</button></form>
+<ol><li>Stáhněte si <a href="{{ url('reservation_ai_prompt') }}" download>prompt pro AI</a>.</li><li>Nahrajte Booking potvrzení do libovolné AI a použijte prompt.</li><li>Stáhněte si <a href="{{ url('reservation_import_example') }}" download>vzorový JSON</a>, pokud potřebujete zkontrolovat formát.</li><li>Nahrajte výsledný JSON sem.</li></ol>
+<p>BookingTracker PDF přímo neanalyzuje. AI vytvoří strukturovaný JSON, který před uložením zkontrolujete a můžete ručně opravit. Soubor se neukládá.</p>
+<form method="post" enctype="multipart/form-data" action="{{ url('extract_reservation_json') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>JSON rezervace <input type="file" name="json_file" accept="application/json,.json" required></label><button>Pokračovat</button></form>
 {% endblock %}

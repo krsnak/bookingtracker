@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+- Add AI-assisted reservation import through one untrusted, versioned JSON document (`schema_version`
+  1), with downloadable AI prompt and fictional example JSON.
+- Require review and manual editing before activation. Unknown facts use explicit JSON `null` and
+  are never inferred; Booking hotel URLs are canonicalized without tracking or session parameters.
+- Remove the legacy PDF import from the normal UI while retaining its internal compatibility path.
+- Keep matcher, pricing, scheduler, and alert-safety rules unchanged. Multi-room reservations now
+  persist safely with their room breakdown, but the matcher remains conservatively non-comparable.
+
 ## 0.6.2
 
 - Complete a single Browser/Remote acceptance flow covering persistent Chromium start and reuse,

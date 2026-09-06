@@ -1,5 +1,14 @@
 # BookingTracker
 
+## Reservation import boundary
+
+Booking confirmation interpretation is externalized to a user-selected AI. The normal
+`Přidat rezervaci` flow accepts only one versioned, typed JSON document and treats it as
+untrusted input: BookingTracker deterministically validates it, requires review and manual
+correction before activation, persists the reviewed facts, and retains the existing exact-match
+and price-safety rules. It neither uploads nor parses a PDF in the normal UI. The downloadable
+prompt and example JSON define schema version 1; unknown facts must be `null`, never inferred.
+
 Version 0.6.0 compacts the reservation dashboard into an `auto-fill` card grid with up to five
 readable cards on a wide Home Assistant panel, a low image/placeholder strip, and denser metadata.
 It preserves the existing accepted-match price gate and adds no Booking image retrieval, scraping,

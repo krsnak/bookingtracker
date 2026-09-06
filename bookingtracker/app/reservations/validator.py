@@ -8,6 +8,7 @@ from app.reservations.models import ReservationDraft
 
 CRITICAL_FIELDS = (
     "property_name",
+    "booking_url",
     "check_in",
     "check_out",
     "adults",
@@ -30,6 +31,10 @@ class ValidationResult:
 
 def validate_activation(reservation: ReservationDraft) -> ValidationResult:
     missing = [field for field in CRITICAL_FIELDS if getattr(reservation, field) is None]
+    if reservation.children and (
+        reservation.children_ages is None or len(reservation.children_ages) != reservation.children
+    ):
+        missing.append("children_ages")
     errors: list[str] = []
     if (
         reservation.check_in

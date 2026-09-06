@@ -1,5 +1,13 @@
 # Implementation plan
 
+## Current import principle
+
+Unstructured Booking confirmation interpretation is externalized to a user-selected AI.
+BookingTracker accepts only a versioned typed JSON document as untrusted input and remains
+responsible for deterministic validation, review, persistence, matching, and price safety.
+The normal UI does not offer direct PDF parsing; the legacy parser remains internal only for
+compatibility and tests.
+
 ## Corrective import releases 0.4.1–0.4.3
 
 Added CTA-resistant property evidence scoring, Czech split-line cancellation/payment parsing,

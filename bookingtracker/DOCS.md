@@ -1,5 +1,13 @@
 # BookingTracker
 
+## Versioned AI JSON import
+
+The normal reservation-import UI accepts a single untrusted JSON object with `schema_version: 1`.
+Its downloadable prompt requires explicit `null` for unknown values and forbids inference.
+BookingTracker validates and canonicalizes the object deterministically, then presents review;
+no uploaded JSON or confirmation PDF is persisted. Matching and pricing consume only the reviewed
+reservation facts and retain their existing exact-comparability gate.
+
 ## Reservation card presentation
 
 The Reservation overview uses a presentation-only card view model. It groups active

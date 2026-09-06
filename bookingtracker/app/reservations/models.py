@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class ReservationSource(StrEnum):
     PASTED_BOOKING_CONFIRMATION = "pasted_booking_confirmation"
     BOOKING_CONFIRMATION_PDF = "booking_confirmation_pdf"
+    AI_JSON = "ai_json"
 
 
 class ImportDocumentSource(StrEnum):

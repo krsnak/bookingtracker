@@ -12,6 +12,7 @@ from pydantic import ValidationError
 def complete_fields() -> dict[str, object]:
     return {
         "property_name": "Example Hotel",
+        "booking_url": "https://www.booking.com/hotel/cz/example-hotel.html",
         "check_in": date(2026, 10, 1),
         "check_out": date(2026, 10, 2),
         "nights": 1,

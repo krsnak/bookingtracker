@@ -66,7 +66,19 @@ from app.presentation import (
 from app.pricing.check_service import PriceCheckService
 from app.pricing.service import ComparablePriceService
 from app.reservations.extractor import ReservationExtractor
-from app.reservations.import_document import ImportDocumentError, pdf_document
+from app.reservations.import_document import (
+    ImportDocumentError,
+    canonical_booking_hotel_url,
+    pdf_document,
+)
+from app.reservations.import_json import (
+    AI_PROMPT,
+    SAMPLE_JSON,
+    JsonImportError,
+    json_candidate,
+    parse_children_ages,
+    parse_rooms_breakdown,
+)
 from app.reservations.models import Reservation
 from app.scheduling.models import CheckRunBlockReason, CheckTrigger
 from app.scheduling.policy import SchedulePolicy
@@ -426,6 +438,42 @@ def create_app(
         app.state.pending[token] = candidate
         return render(request, "review.html", candidate=candidate, token=token)
 
+    @app.get("/reservations/import-example.json", name="reservation_import_example")
+    def reservation_import_example():
+        return PlainTextResponse(
+            SAMPLE_JSON,
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="BookingTracker-import-example.json"'},
+        )
+
+    @app.get("/reservations/ai-prompt.txt", name="reservation_ai_prompt")
+    def reservation_ai_prompt():
+        return PlainTextResponse(
+            AI_PROMPT,
+            media_type="text/plain",
+            headers={"Content-Disposition": 'attachment; filename="BookingTracker-AI-prompt.txt"'},
+        )
+
+    @app.post("/reservations/extract/json", name="extract_reservation_json")
+    async def extract_reservation_json(
+        request: Request,
+        json_file: Annotated[UploadFile, File()],
+        csrf_token: Annotated[str, Form()],
+    ):
+        csrf(csrf_token)
+        try:
+            from app.reservations.import_json import MAX_JSON_BYTES
+
+            contents = await json_file.read(MAX_JSON_BYTES + 1)
+            candidate = json_candidate(contents)
+        except JsonImportError as error:
+            return render(request, "new.html", status_code=422, error=str(error))
+        finally:
+            await json_file.close()
+        token = secrets.token_urlsafe(12)
+        app.state.pending[token] = candidate
+        return render(request, "review.html", candidate=candidate, token=token)
+
     @app.post("/reservations/save", name="save_reservation")
     async def save_reservation(
         request: Request,
@@ -450,7 +498,12 @@ def create_app(
             data = candidate.model_dump(
                 exclude={"property_name_evidence", "booking_url_evidence"}
             ) | {
-                "property_name": value("property_name"), "booking_url": value("booking_url"),
+                "property_name": value("property_name"),
+                "booking_url": (
+                    canonical_booking_hotel_url(value("booking_url") or "")
+                    if value("booking_url")
+                    else None
+                ),
                 "check_in": date.fromisoformat(value("check_in")) if value("check_in") else None,
                 "check_out": date.fromisoformat(value("check_out")) if value("check_out") else None,
                 "nights": (
@@ -459,7 +512,10 @@ def create_app(
                     else candidate.nights
                 ),
                 "adults": integer("adults"), "children": integer("children"),
-                "rooms_count": integer("rooms_count"), "room_type": value("room_type"),
+                "children_ages": parse_children_ages(value("children_ages")),
+                "rooms_count": integer("rooms_count"),
+                "rooms_breakdown": parse_rooms_breakdown(value("rooms_breakdown")),
+                "room_type": value("room_type"),
                 "meal_plan": value("meal_plan"),
                 "breakfast_included": {"yes": True, "no": False}.get(value("breakfast_included") or ""),
                 "free_cancellation": {"yes": True, "no": False}.get(value("free_cancellation") or ""),

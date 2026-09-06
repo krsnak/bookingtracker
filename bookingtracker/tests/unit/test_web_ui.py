@@ -32,6 +32,7 @@ from app.pricing.models import (
     PriceCheckStatus,
 )
 from app.reservations.import_document import canonical_booking_hotel_url, pdf_document
+from app.reservations.import_json import SAMPLE_JSON
 from app.reservations.models import Reservation, ReservationCandidate
 from app.scheduling.models import CheckTrigger
 from app.web.app import create_app, static_asset_revision
@@ -1035,6 +1036,157 @@ def test_only_exact_hotel_paths_are_canonicalized() -> None:
     assert canonical_booking_hotel_url("https://www.booking.com/") is None
 
 
+def test_json_import_and_downloads_use_ingress_relative_urls(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        prefix = "/api/hassio_ingress/json-import"
+        new = client.get("/reservations/new", headers={"X-Ingress-Path": prefix})
+        assert new.status_code == 200
+        assert f'href="{prefix}/reservations/import-example.json"' in new.text
+        assert f'href="{prefix}/reservations/ai-prompt.txt"' in new.text
+        assert "Nahrát PDF potvrzení" not in new.text
+
+        example = client.get("/reservations/import-example.json")
+        prompt = client.get("/reservations/ai-prompt.txt")
+        response = client.post(
+            "/reservations/extract/json",
+            data={"csrf_token": app.state.csrf},
+            files={"json_file": ("reservation.json", SAMPLE_JSON, "application/json")},
+        )
+
+    assert example.text == SAMPLE_JSON
+    assert (
+        'attachment; filename="BookingTracker-import-example.json"'
+        in example.headers["content-disposition"]
+    )
+    assert "room.breakdown" in prompt.text
+    assert response.status_code == 200
+    assert "Example Hotel" in response.text
+
+
+def test_json_import_returns_safe_error_for_invalid_schema(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/reservations/extract/json",
+            data={"csrf_token": app.state.csrf},
+            files={"json_file": ("reservation.json", "secret-value", "application/json")},
+        )
+
+    assert response.status_code == 422
+    assert "JSON nelze přečíst" in response.text
+    assert "secret-value" not in response.text
+
+
+def test_json_null_critical_field_is_visible_and_cannot_save_before_review(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    missing_url = json.dumps(
+        json.loads(SAMPLE_JSON) | {"property": {"name": "Example Hotel", "booking_url": None}}
+    )
+    with TestClient(app) as client:
+        review = client.post(
+            "/reservations/extract/json",
+            data={"csrf_token": app.state.csrf},
+            files={"json_file": ("reservation.json", missing_url, "application/json")},
+        )
+        token = next(iter(app.state.pending))
+        saved = client.post(
+            "/reservations/save",
+            data={"csrf_token": app.state.csrf, "token": token},
+        )
+
+    assert review.status_code == 200
+    assert "Chybí povinné údaje: booking_url" in review.text
+    assert saved.status_code == 200
+    assert app.state.reservations.list_active() == []
+
+
+def test_prompt_guided_json_upload_review_edit_and_save_is_safe(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    with TestClient(app) as client:
+        review = client.post(
+            "/reservations/extract/json",
+            data={"csrf_token": app.state.csrf},
+            files={"json_file": ("prompt-result.json", SAMPLE_JSON, "application/json")},
+        )
+        token = next(iter(app.state.pending))
+        assert review.status_code == 200
+        for field in (
+            "booking_url",
+            "children",
+            "children_ages",
+            "rooms_count",
+            "rooms_breakdown",
+            "room_type",
+            "meal_plan",
+            "breakfast_included",
+            "cancellation_text",
+            "free_cancellation",
+            "cancellation_deadline",
+            "payment_conditions",
+            "booked_total_price",
+            "booked_payable_price",
+            "booked_base_price",
+            "taxes_and_fees",
+            "vat",
+            "city_tax",
+            "currency",
+        ):
+            assert f'name="{field}"' in review.text
+
+        saved = client.post(
+            "/reservations/save",
+            data={
+                "csrf_token": app.state.csrf,
+                "token": token,
+                "property_name": "Reviewed Hotel",
+                "booking_url": (
+                    "https://www.booking.com/hotel/cz/example-hotel.html?"
+                    "sid=session-secret&label=tracking"
+                ),
+                "check_in": "2026-10-10",
+                "check_out": "2026-10-12",
+                "adults": "2",
+                "children": "1",
+                "children_ages": "8",
+                "rooms_count": "1",
+                "rooms_breakdown": "1:Double Room",
+                "room_type": "Double Room",
+                "meal_plan": "Breakfast included",
+                "breakfast_included": "yes",
+                "cancellation_text": "Free cancellation until 2026-10-08 23:59",
+                "free_cancellation": "yes",
+                "cancellation_deadline": "2026-10-08T23:59:00",
+                "payment_conditions": "Pay at the property",
+                "booked_total_price": "250.00",
+                "booked_payable_price": "250.00",
+                "booked_base_price": "220.00",
+                "taxes_and_fees": "30.00",
+                "vat": "30.00",
+                "city_tax": "",
+                "currency": "EUR",
+                "price_drop_threshold_percent": "10",
+            },
+            follow_redirects=False,
+        )
+
+    assert saved.status_code == 303
+    stored = app.state.reservations.list_active()
+    assert len(stored) == 1
+    assert stored[0].booking_url == "https://www.booking.com/hotel/cz/example-hotel.html"
+    assert stored[0].children_ages == [8]
+    assert stored[0].rooms_breakdown is not None
+    assert stored[0].payment_conditions == "Pay at the property"
+
+
 def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path) -> None:  # noqa: ANN001
     app = create_app(
         paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
@@ -1116,7 +1268,7 @@ def test_pdf_upload_uses_confirmation_anchor_not_payment_cards_or_issue_date(tmp
     assert candidate.room_type == "Deluxe Double Room"
     assert candidate.breakfast_included is True
     assert (candidate.booked_total_price, candidate.currency) == (Decimal("32.88"), "EUR")
-    assert candidate.missing_critical_fields == []
+    assert candidate.missing_critical_fields == ["booking_url"]
     assert "American Express, Visa, Euro/Mastercard, Diners Club, JCB, Maestro" not in response.text
     assert ">2. září 2026<" not in response.text
     assert "Chybí povinné údaje rezervace" not in response.text
@@ -1145,7 +1297,7 @@ def test_pdf_upload_renders_guest_house_cancellation_policy(tmp_path) -> None:  
     assert (candidate.check_in, candidate.check_out) == (date(2026, 9, 14), date(2026, 9, 15))
     assert candidate.free_cancellation is True
     assert candidate.cancellation_deadline is None
-    assert candidate.missing_critical_fields == []
+    assert candidate.missing_critical_fields == ["booking_url"]
     assert "Bezplatné zrušení" in response.text
 
 
@@ -1190,7 +1342,7 @@ def test_review_cancellation_display_is_explicit_and_never_guesses_deadline(
         candidate = next(iter(app.state.pending.values()))
 
     assert response.status_code == 200
-    assert candidate.missing_critical_fields == []
+    assert candidate.missing_critical_fields == ["booking_url"]
     if expected is None:
         assert candidate.free_cancellation is None
         assert "Zdarma do" not in response.text
@@ -1850,6 +2002,7 @@ def test_manual_lease_rejects_check_now_without_persisting_history(tmp_path) -> 
     reservation = app.state.reservations.create(
         Reservation(
             property_name="Papaya Hostel",
+            booking_url="https://www.booking.com/hotel/cz/papaya-hostel.html",
             check_in=date(2026, 9, 18),
             check_out=date(2026, 9, 19),
             adults=2,

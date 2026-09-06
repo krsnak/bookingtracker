@@ -7,12 +7,11 @@
   {% from "components.html" import back_link %}{{ back_link(url('new_reservation'), 'Zpět na přidání rezervace') }}
   <h1>Kontrola rezervace</h1>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if candidate.missing_critical_fields %}<p class="error">Chybí povinné údaje: {{ candidate.missing_critical_fields|join(', ') }}. Doplňte je v úpravě níže.</p>{% endif %}
   {% if candidate.validation_errors %}<p class="error">{{ candidate.validation_errors|join(' ') }}</p>{% endif %}
   <form method="post" action="{{ url('save_reservation') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <input type="hidden" name="token" value="{{ token }}">
-    <input type="hidden" name="breakfast_included" value="{{ 'yes' if candidate.breakfast_included is true else ('no' if candidate.breakfast_included is false else '') }}">
-    <input type="hidden" name="free_cancellation" value="{{ 'yes' if candidate.free_cancellation is true else ('no' if candidate.free_cancellation is false else '') }}">
     <div class="reservation-review__summary">
       <section class="reservation-review__full">
         <h2 class="reservation-review__property">{{ candidate.property_name or 'Doplňte ubytování' }}</h2>
@@ -23,7 +22,7 @@
         <h3>Pobyt</h3>
         <p>{{ candidate.room_type or 'Doplňte typ pokoje' }}</p>
         <p>{{ candidate.rooms_count or '?' }} pokoj · {{ candidate.adults or '?' }} dospělí</p>
-        <label>Děti <input type="number" name="children" value="{{ candidate.children if candidate.children is not none else '' }}"></label>
+        <p>{{ candidate.children or 0 }} dětí</p>
         {% if candidate.breakfast_included %}<p>Snídaně v ceně</p>{% endif %}
       </section>
       <section>
@@ -42,9 +41,13 @@
     <label>Pokles ceny (%) <input name="price_drop_threshold_percent" value="{{ candidate.price_drop_threshold_percent or '' }}"></label>
     <details>
       <summary>Upravit údaje</summary>
-      {% for name,label in [('property_name','Ubytování'),('booking_url','Odkaz na Booking.com'),('check_in','Příjezd'),('check_out','Odjezd'),('adults','Dospělí'),('rooms_count','Počet pokojů'),('room_type','Typ pokoje'),('meal_plan','Stravování'),('cancellation_deadline','Termín zrušení'),('payment_conditions','Platební podmínky'),('booked_total_price','Celková cena'),('booked_payable_price','Cena k úhradě'),('booked_base_price','Základní cena'),('taxes_and_fees','Daně a poplatky'),('currency','Měna')] %}
-      <label>{{ label }}<input name="{{ name }}" value="{{ candidate|attr(name) or '' }}"></label>
+      {% for name,label in [('property_name','Ubytování'),('booking_url','Odkaz na Booking.com'),('check_in','Příjezd'),('check_out','Odjezd'),('adults','Dospělí'),('children','Počet dětí'),('children_ages','Věky dětí (oddělené |)'),('rooms_count','Počet pokojů'),('rooms_breakdown','Rozpis pokojů (počet:typ | počet:typ)'),('room_type','Hlavní typ pokoje'),('meal_plan','Stravování'),('cancellation_text','Podmínky zrušení'),('cancellation_deadline','Termín zrušení'),('payment_conditions','Platební podmínky'),('booked_total_price','Celková cena'),('booked_payable_price','Cena k úhradě'),('booked_base_price','Základní cena'),('taxes_and_fees','Daně a poplatky'),('vat','DPH'),('city_tax','Městská daň'),('currency','Měna')] %}
+      {% if name != 'cancellation_text' or candidate.source.value == 'ai_json' %}
+      <label>{{ label }}<input name="{{ name }}" value="{% if name == 'children_ages' %}{{ candidate.children_ages|join('|') if candidate.children_ages else '' }}{% elif name == 'rooms_breakdown' %}{% for room in candidate.rooms_breakdown or [] %}{{ room.count }}:{{ room.room_type }}{% if not loop.last %}|{% endif %}{% endfor %}{% else %}{{ candidate|attr(name) or '' }}{% endif %}"></label>
+      {% endif %}
       {% endfor %}
+      <label>Snídaně v ceně <select name="breakfast_included"><option value="">Neuvedeno</option><option value="yes" {% if candidate.breakfast_included is true %}selected{% endif %}>Ano</option><option value="no" {% if candidate.breakfast_included is false %}selected{% endif %}>Ne</option></select></label>
+      <label>Storno zdarma <select name="free_cancellation"><option value="">Neuvedeno</option><option value="yes" {% if candidate.free_cancellation is true %}selected{% endif %}>Ano</option><option value="no" {% if candidate.free_cancellation is false %}selected{% endif %}>Ne</option></select></label>
     </details>
     <button>Uložit rezervaci</button>
   </form>

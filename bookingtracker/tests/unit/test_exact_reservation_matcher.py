@@ -18,6 +18,7 @@ MATCHER = ExactReservationMatcher()
 def reservation(**overrides: object) -> Reservation:
     fields: dict[str, object] = {
         "property_name": "Papaya Hostel",
+        "booking_url": "https://www.booking.com/hotel/cz/papaya-hostel.html",
         "check_in": date(2026, 9, 18),
         "check_out": date(2026, 9, 19),
         "nights": 1,
