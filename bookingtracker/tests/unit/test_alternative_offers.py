@@ -169,10 +169,14 @@ def test_explicitly_worse_protections_remain_hard_rejects() -> None:
 
     assert alternatives == []
     assert diagnostics.hard_rejects == {
-        "Platební podmínky jsou explicitně horší": 1,
-        "Snídaně je explicitně horší": 1,
-        "Storno podmínky jsou explicitně horší": 1,
-        "Termín storna je explicitně horší": 1,
+        "breakfast_worse": 1,
+        "cancellation_worse": 2,
+        "payment_worse": 1,
+    }
+    assert diagnostics.single_hard_rejects == {
+        "breakfast_worse": 1,
+        "cancellation_worse": 2,
+        "payment_worse": 1,
     }
 
 
@@ -205,8 +209,8 @@ def test_private_room_requires_confirmed_private_candidate() -> None:
 
     assert alternatives == []
     assert diagnostics.hard_rejects == {
-        "Lůžko ve sdíleném pokoji nemůže nahradit soukromý pokoj": 1,
-        "Soukromý pokoj kandidáta není potvrzen": 1,
+        "dorm_mismatch": 1,
+        "private_room_not_proven": 1,
     }
 
 
@@ -218,7 +222,39 @@ def test_occupancy_currency_and_tax_basis_remain_hard_rejects() -> None:
 
     assert alternatives == []
     assert diagnostics.hard_rejects == {
-        "Bezpečný konečný total včetně daní není potvrzen": 1,
-        "Jiná měna": 1,
-        "Požadované obsazení není potvrzeno": 1,
+        "currency_mismatch": 1,
+        "occupancy_mismatch": 1,
+        "tax_inclusive_total_missing": 1,
+    }
+
+
+def test_diagnostics_count_soft_unknowns_even_for_hard_rejected_offer() -> None:
+    booked = reservation(
+        breakfast_included=True,
+        meal_plan="Breakfast included",
+        free_cancellation=True,
+        cancellation_deadline=datetime(2026, 9, 10),
+        payment_conditions="Pay at property",
+    )
+    rejected_with_unknowns = rate(
+        adults=1,
+        breakfast_included=None,
+        meal_plan=None,
+        free_cancellation=None,
+        cancellation_deadline=None,
+        payment_conditions=None,
+    )
+
+    alternatives, diagnostics = EVALUATOR.evaluate_with_diagnostics(
+        booked, [rejected_with_unknowns]
+    )
+
+    assert alternatives == []
+    assert diagnostics.hard_rejects == {"occupancy_mismatch": 1}
+    assert diagnostics.single_hard_rejects == {"occupancy_mismatch": 1}
+    assert diagnostics.soft_unknown_evidence == {
+        "breakfast_unknown": 1,
+        "cancellation_unknown": 1,
+        "meal_unknown": 1,
+        "payment_unknown": 1,
     }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.2
+
+- Show a safe Czech aggregate diagnostic for Phase A informational alternatives from the existing
+  persisted offer snapshots: found and evaluated offers, accepted alternatives, hard safety
+  reasons, soft unknown evidence, and candidates rejected by exactly one hard rule.
+- Keep candidate text, URLs, Booking identifiers, sessions, tokens, personal data, and internal
+  reason codes out of the diagnostic. The comparable matcher, pricing, and alternative safety
+  baseline are unchanged.
+
 ## 0.8.1
 
 - Refine Phase A information-only alternatives: unknown breakfast, meal, cancellation, and

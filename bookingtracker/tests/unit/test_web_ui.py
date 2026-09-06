@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from app.alerts.models import Alert, AlertSeverity, AlertType
 from app.alerts.notifications import HomeAssistantNotificationAdapter
-from app.booking.models import RateOffer
+from app.booking.models import RateOffer, RoomFacts
 from app.booking.room_facts import extract_room_facts
 from app.browser.models import (
     AuthenticationState,
@@ -46,6 +46,8 @@ from app.web.presentation import (
     status_label,
 )
 from app.web.reservation_presentation import (
+    _alternative_hard_reject_summary,
+    _alternative_unknown_summary,
     alternative_offer_diagnostics,
     alternative_offer_views,
     check_history_rows,
@@ -384,13 +386,66 @@ def test_alternatives_are_information_only_and_not_price_surfaces() -> None:
     assert "Výhled není potvrzen" in alternatives[0].unknown_or_different
     assert diagnostics is not None
     assert diagnostics.offers_found == 1
+    assert diagnostics.offers_evaluated == 1
     assert diagnostics.alternatives_accepted == 1
     assert diagnostics.hard_rejects == ()
-    assert diagnostics.soft_unknown_evidence == (("Výhled není potvrzen", 1),)
+    assert diagnostics.soft_unknown_evidence == ("U 1 nabídky nebyl ověřen výhled.",)
+    assert diagnostics.single_hard_rejects == ()
     assert card.alternative_count == 1
     assert card.current_price_label is None
     assert card.price_difference_label is None
     assert price_history_view(item, [no_match]).empty_label
+
+
+@pytest.mark.parametrize(
+    ("code", "count", "expected"),
+    [
+        (
+            "private_room_not_proven",
+            5,
+            "U 5 nabídek nebylo možné potvrdit, že jde o soukromý pokoj.",
+        ),
+        ("dorm_mismatch", 1, "U 1 nabídky šlo o lůžko ve sdíleném pokoji."),
+        (
+            "occupancy_mismatch",
+            2,
+            "U 2 nabídek nebyla dostatečná kapacita pro rezervovaný počet hostů.",
+        ),
+        ("room_count_mismatch", 3, "U 3 nabídek nesouhlasil počet pokojů."),
+        ("currency_mismatch", 4, "U 4 nabídek byla nabídka v jiné měně."),
+        (
+            "tax_inclusive_total_missing",
+            1,
+            "U 1 nabídky nebyla bezpečně potvrzena konečná cena včetně daní a poplatků.",
+        ),
+        ("breakfast_worse", 2, "U 2 nabídek byla horší snídaně."),
+        ("cancellation_worse", 3, "U 3 nabídek byly horší storno podmínky."),
+        ("payment_worse", 4, "U 4 nabídek byly horší platební podmínky."),
+    ],
+)
+def test_alternative_hard_rejects_have_centralized_czech_labels(
+    code: str, count: int, expected: str
+) -> None:
+    assert _alternative_hard_reject_summary(code, count) == expected
+
+
+@pytest.mark.parametrize(
+    ("code", "count", "expected"),
+    [
+        ("breakfast_unknown", 1, "U 1 nabídky nebylo možné ověřit snídani."),
+        ("meal_unknown", 4, "U 4 nabídek nebylo možné ověřit stravu."),
+        ("cancellation_unknown", 6, "U 6 nabídek nebylo možné ověřit storno podmínky."),
+        ("payment_unknown", 3, "U 3 nabídek nebylo možné ověřit platební podmínky."),
+        ("balcony_unknown", 2, "U 2 nabídek nebyl ověřen balkon."),
+        ("view_unknown", 1, "U 1 nabídky nebyl ověřen výhled."),
+        ("area_unknown", 1, "U 1 nabídky nebyla ověřena plocha pokoje."),
+        ("bed_type_unknown", 1, "U 1 nabídky nebyl ověřen typ postele."),
+    ],
+)
+def test_alternative_unknowns_have_centralized_czech_labels(
+    code: str, count: int, expected: str
+) -> None:
+    assert _alternative_unknown_summary(code, count) == expected
 
 
 def test_dashboard_add_extract_and_prefixed_routes(tmp_path) -> None:  # noqa: ANN001
@@ -655,12 +710,52 @@ def test_detail_renders_alternatives_without_delta_graph_or_price_drop(tmp_path)
     assert "Cena nabídky: <strong>1 200,00 NOK</strong>" in detail.text
     assert "Tato nabídka není bezpečně porovnatelná." in detail.text
     assert "Výhled není potvrzen" in detail.text
-    assert "Technická diagnostika alternativ" in detail.text
-    assert "Nalezené nabídky: 1 · Přijaté informační alternativy: 1" in detail.text
-    assert "Neověřeno: Výhled není potvrzen (1)" in detail.text
+    assert "Diagnostika alternativ" in detail.text
+    assert "Nalezené nabídky na Bookingu: 1" in detail.text
+    assert "Posouzené nabídky: 1" in detail.text
+    assert "Možné alternativy: 1" in detail.text
+    assert "Neověřené vlastnosti" in detail.text
+    assert "U 1 nabídky nebyl ověřen výhled." in detail.text
+    assert "view_unknown" not in detail.text
     assert "PRICE_DROP" not in detail.text
     assert "−120,54 NOK" not in detail.text
     assert "Vývoj bezpečně porovnatelných cen" not in detail.text
+
+
+def test_detail_translates_hard_alternative_diagnostics_without_internal_codes(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"), start_browser_on_startup=False
+    )
+    stored = app.state.reservations.create(
+        checkable_reservation().model_copy(update={"room_type": "Triple Room"})
+    )
+    offer = RateOffer(
+        property_name="STORHAUGEN GARD",
+        room_name="Náhradní nabídka",
+        normalized_room_name="nahradni nabidka",
+        adults=2,
+        children=0,
+        current_price=Decimal("1200"),
+        currency="NOK",
+        taxes_included=True,
+        room_facts=RoomFacts(),
+        source_row_text="sanitized",
+        source_url="https://example.test",
+        scrape_timestamp=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    app.state.history.create(
+        PriceCheckRecord(reservation_id=stored.id, status=PriceCheckStatus.NO_MATCH), [offer]
+    )
+
+    with TestClient(app) as client:
+        detail = client.get(f"/reservations/{stored.id}")
+
+    assert "Proč byly nabídky vyřazeny" in detail.text
+    assert "U 1 nabídky nebylo možné potvrdit, že jde o soukromý pokoj." in detail.text
+    assert "Nejbližší vyřazené nabídky" in detail.text
+    assert "1 nabídka nesplnila pouze podmínku „soukromý pokoj nebyl potvrzen“." in detail.text
+    assert "private_room_not_proven" not in detail.text
+    assert "Hard reject" not in detail.text
 
 
 def test_property_image_upload_replace_remove_and_ingress_routes(tmp_path) -> None:  # noqa: ANN001

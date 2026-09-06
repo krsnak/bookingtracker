@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from decimal import Decimal
 from difflib import SequenceMatcher
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
@@ -27,13 +28,45 @@ class AlternativeOffer(BaseModel):
     diagnostic_index: int = Field(default=0, ge=0, exclude=True)
 
 
+class AlternativeHardRejectCode(StrEnum):
+    PROPERTY_NOT_PROVEN = "property_not_proven"
+    PROPERTY_MISMATCH = "property_mismatch"
+    OCCUPANCY_MISMATCH = "occupancy_mismatch"
+    ROOM_COUNT_MISMATCH = "room_count_mismatch"
+    CURRENCY_MISMATCH = "currency_mismatch"
+    TAX_INCLUSIVE_TOTAL_MISSING = "tax_inclusive_total_missing"
+    DORM_MISMATCH = "dorm_mismatch"
+    PRIVATE_ROOM_NOT_PROVEN = "private_room_not_proven"
+    BREAKFAST_WORSE = "breakfast_worse"
+    CANCELLATION_WORSE = "cancellation_worse"
+    PAYMENT_WORSE = "payment_worse"
+
+
+class AlternativeSoftUnknownCode(StrEnum):
+    BREAKFAST = "breakfast_unknown"
+    MEAL = "meal_unknown"
+    CANCELLATION = "cancellation_unknown"
+    PAYMENT = "payment_unknown"
+    PRIVATE_BATHROOM = "private_bathroom_unknown"
+    BALCONY = "balcony_unknown"
+    TERRACE = "terrace_unknown"
+    AIR_CONDITIONING = "air_conditioning_unknown"
+    KITCHEN = "kitchen_unknown"
+    ACCESSIBLE = "accessible_unknown"
+    VIEW = "view_unknown"
+    AREA = "area_unknown"
+    BED_TYPE = "bed_type_unknown"
+
+
 class AlternativeOfferDiagnostics(BaseModel):
     """Aggregated, non-identifying explanation of a Phase A evaluation."""
 
     offers_found: int = Field(ge=0)
+    offers_evaluated: int = Field(ge=0)
     alternatives_accepted: int = Field(ge=0)
     hard_rejects: dict[str, int] = Field(default_factory=dict)
     soft_unknown_evidence: dict[str, int] = Field(default_factory=dict)
+    single_hard_rejects: dict[str, int] = Field(default_factory=dict)
 
 
 class AlternativeOfferEvaluator:
@@ -56,27 +89,32 @@ class AlternativeOfferEvaluator:
         candidates: list[AlternativeOffer] = []
         hard_rejects: Counter[str] = Counter()
         soft_unknown_evidence: Counter[str] = Counter()
+        single_hard_rejects: Counter[str] = Counter()
         for index, offer in enumerate(offers):
-            rejection_reasons = self._hard_rejection_reasons(reservation, offer)
-            if rejection_reasons:
-                hard_rejects.update(rejection_reasons)
+            rejection_codes = self._hard_rejection_codes(reservation, offer)
+            hard_rejects.update(rejection_codes)
+            soft_unknown_evidence.update(self._soft_unknown_codes(reservation, offer))
+            if len(rejection_codes) == 1:
+                single_hard_rejects.update(rejection_codes)
+            if rejection_codes:
                 continue
             alternative = self._evaluate(reservation, offer, index)
             assert alternative is not None
             candidates.append(alternative)
-            soft_unknown_evidence.update(alternative.unknown_or_different)
         alternatives = sorted(candidates, key=self._sort_key)[:3]
         return alternatives, AlternativeOfferDiagnostics(
             offers_found=len(offers),
+            offers_evaluated=len(offers),
             alternatives_accepted=len(candidates),
             hard_rejects=dict(sorted(hard_rejects.items())),
             soft_unknown_evidence=dict(sorted(soft_unknown_evidence.items())),
+            single_hard_rejects=dict(sorted(single_hard_rejects.items())),
         )
 
     def _evaluate(
         self, reservation: Reservation, rate: RateOffer, diagnostic_index: int
     ) -> AlternativeOffer | None:
-        if self._hard_rejection_reasons(reservation, rate):
+        if self._hard_rejection_codes(reservation, rate):
             return None
 
         preserved: list[str] = ["Stejné ubytování", "Požadované obsazení"]
@@ -109,50 +147,50 @@ class AlternativeOfferEvaluator:
         )
 
     @staticmethod
-    def _hard_rejection_reasons(reservation: Reservation, rate: RateOffer) -> list[str]:
+    def _hard_rejection_codes(reservation: Reservation, rate: RateOffer) -> list[str]:
         """Return only structural or explicitly worse Phase A safety boundaries."""
         rejected: list[str] = []
         if not reservation.property_name or not rate.property_name:
-            rejected.append("Ubytování není potvrzeno")
+            rejected.append(AlternativeHardRejectCode.PROPERTY_NOT_PROVEN.value)
         elif normalized_tokens(reservation.property_name) != normalized_tokens(rate.property_name):
-            rejected.append("Jiné ubytování")
+            rejected.append(AlternativeHardRejectCode.PROPERTY_MISMATCH.value)
         _score, _warning, occupancy_rejection = ExactReservationMatcher._occupancy(
             reservation, rate
         )
         if reservation.rooms_count != 1:
-            rejected.append("Kompatibilní počet pokojů není potvrzen")
+            rejected.append(AlternativeHardRejectCode.ROOM_COUNT_MISMATCH.value)
         elif occupancy_rejection:
-            rejected.append("Požadované obsazení není potvrzeno")
+            rejected.append(AlternativeHardRejectCode.OCCUPANCY_MISMATCH.value)
         if (
             reservation.currency != rate.currency
             or rate.taxes_included is not True
             or rate.current_price <= 0
         ):
             if reservation.currency != rate.currency:
-                rejected.append("Jiná měna")
+                rejected.append(AlternativeHardRejectCode.CURRENCY_MISMATCH.value)
             if rate.taxes_included is not True or rate.current_price <= 0:
-                rejected.append("Bezpečný konečný total včetně daní není potvrzen")
+                rejected.append(AlternativeHardRejectCode.TAX_INCLUSIVE_TOTAL_MISSING.value)
         booked = extract_room_facts(reservation.room_type or "")
         if booked.accommodation_kind == "private_room":
             if rate.room_facts.accommodation_kind == "dorm_bed":
-                rejected.append("Lůžko ve sdíleném pokoji nemůže nahradit soukromý pokoj")
+                rejected.append(AlternativeHardRejectCode.DORM_MISMATCH.value)
             elif rate.room_facts.accommodation_kind != "private_room":
-                rejected.append("Soukromý pokoj kandidáta není potvrzen")
+                rejected.append(AlternativeHardRejectCode.PRIVATE_ROOM_NOT_PROVEN.value)
 
         # Missing evidence is informative rather than rejecting. A documented downgrade of a
         # booked protection remains a Phase A safety boundary.
         if reservation.breakfast_included is True and rate.breakfast_included is False:
-            rejected.append("Snídaně je explicitně horší")
+            rejected.append(AlternativeHardRejectCode.BREAKFAST_WORSE.value)
         if reservation.free_cancellation is True and (
             rate.free_cancellation is False or rate.non_refundable is True
         ):
-            rejected.append("Storno podmínky jsou explicitně horší")
+            rejected.append(AlternativeHardRejectCode.CANCELLATION_WORSE.value)
         if (
             reservation.cancellation_deadline
             and rate.cancellation_deadline
             and rate.cancellation_deadline < reservation.cancellation_deadline
         ):
-            rejected.append("Termín storna je explicitně horší")
+            rejected.append(AlternativeHardRejectCode.CANCELLATION_WORSE.value)
         if reservation.payment_conditions:
             booked_payment = reservation.payment_conditions.casefold()
             candidate_payment = (rate.payment_conditions or "").casefold()
@@ -163,8 +201,46 @@ class AlternativeOfferEvaluator:
                 "prepayment required" in candidate_payment or "pay in advance" in candidate_payment
             )
             if booked_pay_property and candidate_prepay:
-                rejected.append("Platební podmínky jsou explicitně horší")
+                rejected.append(AlternativeHardRejectCode.PAYMENT_WORSE.value)
         return rejected
+
+    @staticmethod
+    def _soft_unknown_codes(reservation: Reservation, rate: RateOffer) -> set[str]:
+        """Return missing evidence only; these codes never alter Phase A eligibility."""
+        unknown: set[str] = set()
+        if reservation.breakfast_included is True and rate.breakfast_included is None:
+            unknown.add(AlternativeSoftUnknownCode.BREAKFAST.value)
+        if reservation.meal_plan and (
+            not rate.meal_plan
+            or normalized_tokens(reservation.meal_plan) != normalized_tokens(rate.meal_plan)
+        ):
+            unknown.add(AlternativeSoftUnknownCode.MEAL.value)
+        if reservation.free_cancellation is True and rate.free_cancellation is None:
+            unknown.add(AlternativeSoftUnknownCode.CANCELLATION.value)
+        if reservation.cancellation_deadline and rate.cancellation_deadline is None:
+            unknown.add(AlternativeSoftUnknownCode.CANCELLATION.value)
+        if reservation.payment_conditions and not rate.payment_conditions:
+            unknown.add(AlternativeSoftUnknownCode.PAYMENT.value)
+
+        booked = extract_room_facts(reservation.room_type or "")
+        candidate = rate.room_facts
+        for field, code in (
+            ("private_bathroom", AlternativeSoftUnknownCode.PRIVATE_BATHROOM),
+            ("balcony", AlternativeSoftUnknownCode.BALCONY),
+            ("terrace", AlternativeSoftUnknownCode.TERRACE),
+            ("air_conditioning", AlternativeSoftUnknownCode.AIR_CONDITIONING),
+            ("kitchen", AlternativeSoftUnknownCode.KITCHEN),
+            ("accessible", AlternativeSoftUnknownCode.ACCESSIBLE),
+        ):
+            if getattr(booked, field) is not None and getattr(candidate, field) is None:
+                unknown.add(code.value)
+        if booked.view and candidate.view is None:
+            unknown.add(AlternativeSoftUnknownCode.VIEW.value)
+        if booked.area_sqm is not None and candidate.area_sqm is None:
+            unknown.add(AlternativeSoftUnknownCode.AREA.value)
+        if booked.bed_types and not candidate.bed_types:
+            unknown.add(AlternativeSoftUnknownCode.BED_TYPE.value)
+        return unknown
 
     @staticmethod
     def _rate_terms(

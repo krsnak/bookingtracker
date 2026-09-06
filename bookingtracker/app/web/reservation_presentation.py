@@ -109,9 +109,11 @@ class AlternativeOfferView:
 @dataclass(frozen=True)
 class AlternativeDiagnosticsView:
     offers_found: int
+    offers_evaluated: int
     alternatives_accepted: int
-    hard_rejects: tuple[tuple[str, int], ...]
-    soft_unknown_evidence: tuple[tuple[str, int], ...]
+    hard_rejects: tuple[str, ...]
+    soft_unknown_evidence: tuple[str, ...]
+    single_hard_rejects: tuple[str, ...]
 
 
 def _plural_nights(nights: int) -> str:
@@ -329,10 +331,95 @@ def alternative_offer_diagnostics(
     )
     return AlternativeDiagnosticsView(
         offers_found=diagnostics.offers_found,
+        offers_evaluated=diagnostics.offers_evaluated,
         alternatives_accepted=diagnostics.alternatives_accepted,
-        hard_rejects=tuple(diagnostics.hard_rejects.items()),
-        soft_unknown_evidence=tuple(diagnostics.soft_unknown_evidence.items()),
+        hard_rejects=tuple(
+            _alternative_hard_reject_summary(code, count)
+            for code, count in diagnostics.hard_rejects.items()
+        ),
+        soft_unknown_evidence=tuple(
+            _alternative_unknown_summary(code, count)
+            for code, count in diagnostics.soft_unknown_evidence.items()
+        ),
+        single_hard_rejects=tuple(
+            _alternative_single_reject_summary(code, count)
+            for code, count in diagnostics.single_hard_rejects.items()
+        ),
     )
+
+
+def _offers_genitive(count: int) -> str:
+    return f"{count} nabídky" if count == 1 else f"{count} nabídek"
+
+
+def _offers_nominative(count: int) -> str:
+    if count == 1:
+        return "1 nabídka"
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return f"{count} nabídky"
+    return f"{count} nabídek"
+
+
+def _alternative_hard_reject_summary(code: str, count: int) -> str:
+    templates = {
+        "property_not_proven": "U {offers} nebylo možné potvrdit ubytování.",
+        "property_mismatch": "U {offers} šlo o jiné ubytování.",
+        "occupancy_mismatch": (
+            "U {offers} nebyla dostatečná kapacita pro rezervovaný počet hostů."
+        ),
+        "room_count_mismatch": "U {offers} nesouhlasil počet pokojů.",
+        "currency_mismatch": "U {offers} byla nabídka v jiné měně.",
+        "tax_inclusive_total_missing": (
+            "U {offers} nebyla bezpečně potvrzena konečná cena včetně daní a poplatků."
+        ),
+        "dorm_mismatch": "U {offers} šlo o lůžko ve sdíleném pokoji.",
+        "private_room_not_proven": (
+            "U {offers} nebylo možné potvrdit, že jde o soukromý pokoj."
+        ),
+        "breakfast_worse": "U {offers} byla horší snídaně.",
+        "cancellation_worse": "U {offers} byly horší storno podmínky.",
+        "payment_worse": "U {offers} byly horší platební podmínky.",
+    }
+    return templates[code].format(offers=_offers_genitive(count))
+
+
+def _alternative_unknown_summary(code: str, count: int) -> str:
+    templates = {
+        "breakfast_unknown": "U {offers} nebylo možné ověřit snídani.",
+        "meal_unknown": "U {offers} nebylo možné ověřit stravu.",
+        "cancellation_unknown": "U {offers} nebylo možné ověřit storno podmínky.",
+        "payment_unknown": "U {offers} nebylo možné ověřit platební podmínky.",
+        "private_bathroom_unknown": "U {offers} nebyla ověřena vlastní koupelna.",
+        "balcony_unknown": "U {offers} nebyl ověřen balkon.",
+        "terrace_unknown": "U {offers} nebyla ověřena terasa.",
+        "air_conditioning_unknown": "U {offers} nebyla ověřena klimatizace.",
+        "kitchen_unknown": "U {offers} nebyla ověřena kuchyň.",
+        "accessible_unknown": "U {offers} nebyla ověřena bezbariérovost.",
+        "view_unknown": "U {offers} nebyl ověřen výhled.",
+        "area_unknown": "U {offers} nebyla ověřena plocha pokoje.",
+        "bed_type_unknown": "U {offers} nebyl ověřen typ postele.",
+    }
+    return templates[code].format(offers=_offers_genitive(count))
+
+
+def _alternative_single_reject_summary(code: str, count: int) -> str:
+    labels = {
+        "property_not_proven": "ubytování nebylo potvrzeno",
+        "property_mismatch": "šlo o jiné ubytování",
+        "occupancy_mismatch": "nabídka nemá dostatečnou kapacitu",
+        "room_count_mismatch": "nesouhlasí počet pokojů",
+        "currency_mismatch": "nabídka je v jiné měně",
+        "tax_inclusive_total_missing": "konečná cena včetně daní a poplatků nebyla potvrzena",
+        "dorm_mismatch": "nabídka je lůžko ve sdíleném pokoji",
+        "private_room_not_proven": "soukromý pokoj nebyl potvrzen",
+        "breakfast_worse": "nabídka má horší snídani",
+        "cancellation_worse": "nabídka má horší storno podmínky",
+        "payment_worse": "nabídka má horší platební podmínky",
+    }
+    if count == 1:
+        return f"1 nabídka nesplnila pouze podmínku „{labels[code]}“."
+    verb = "nesplnily" if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14 else "nesplnilo"
+    return f"{_offers_nominative(count)} {verb} pouze podmínku „{labels[code]}“."
 
 
 def _alternative_view(item: AlternativeOffer) -> AlternativeOfferView:
