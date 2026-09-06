@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
+from app.booking.models import RoomFacts
 from app.matching.alternatives import AlternativeOfferEvaluator
 from app.matching.matcher import ExactReservationMatcher
 from test_exact_reservation_matcher import rate, reservation
@@ -67,6 +68,7 @@ def test_unknown_balcony_can_be_alternative_but_is_explicitly_not_comparable() -
 def test_known_worse_rate_protections_are_excluded() -> None:
     booked = reservation(
         breakfast_included=True,
+        meal_plan="Breakfast included",
         free_cancellation=True,
         cancellation_deadline=datetime(2026, 9, 10),
         payment_conditions="Pay at property",
@@ -119,3 +121,104 @@ def test_order_is_deterministic_and_price_only_breaks_similarity_ties() -> None:
 
 def test_multi_room_reservation_has_no_unsafe_alternative_shortcut() -> None:
     assert EVALUATOR.evaluate(reservation(rooms_count=2), [rate()]) == []
+
+
+def test_unknown_rate_protections_are_information_only_evidence() -> None:
+    booked = reservation(
+        breakfast_included=True,
+        meal_plan="Breakfast included",
+        free_cancellation=True,
+        cancellation_deadline=datetime(2026, 9, 10),
+        payment_conditions="Pay at property",
+    )
+    offer = rate(
+        breakfast_included=None,
+        meal_plan=None,
+        free_cancellation=None,
+        cancellation_deadline=None,
+        payment_conditions=None,
+    )
+
+    alternative = EVALUATOR.evaluate(booked, [offer])[0]
+
+    assert {
+        "Snídaně není potvrzena",
+        "Strava není potvrzena",
+        "Storno není potvrzeno",
+        "Termín storna není potvrzen",
+        "Platební podmínky nejsou doloženy",
+    } <= set(alternative.unknown_or_different)
+    assert not ExactReservationMatcher().match(booked, [offer]).accepted
+
+
+def test_explicitly_worse_protections_remain_hard_rejects() -> None:
+    booked = reservation(
+        breakfast_included=True,
+        free_cancellation=True,
+        cancellation_deadline=datetime(2026, 9, 10),
+        payment_conditions="Pay at property",
+    )
+    offers = [
+        rate(breakfast_included=False),
+        rate(free_cancellation=False),
+        rate(cancellation_deadline=datetime(2026, 9, 9)),
+        rate(payment_conditions="Pay in advance"),
+    ]
+
+    alternatives, diagnostics = EVALUATOR.evaluate_with_diagnostics(booked, offers)
+
+    assert alternatives == []
+    assert diagnostics.hard_rejects == {
+        "Platební podmínky jsou explicitně horší": 1,
+        "Snídaně je explicitně horší": 1,
+        "Storno podmínky jsou explicitně horší": 1,
+        "Termín storna je explicitně horší": 1,
+    }
+
+
+def test_unknown_room_facts_are_information_only_evidence() -> None:
+    booked = reservation(
+        room_type="Triple Room with Balcony and Sea View 25 m² with Double Bed",
+        breakfast_included=None,
+    )
+    offer = rate(room_name="Classic Triple Room")
+
+    alternative = EVALUATOR.evaluate(booked, [offer])[0]
+
+    assert {
+        "Balkon není potvrzen",
+        "Výhled není potvrzen",
+        "Plocha pokoje není potvrzena",
+        "Typ postele není potvrzen",
+    } <= set(alternative.unknown_or_different)
+
+
+def test_private_room_requires_confirmed_private_candidate() -> None:
+    booked = reservation(room_type="Triple Room", breakfast_included=None)
+    dorm = rate(
+        room_name="Bed in 4-Bed Dormitory Room",
+        room_facts=RoomFacts(accommodation_kind="dorm_bed"),
+    )
+    unknown = rate(room_name="Classic Triple", room_facts=RoomFacts())
+
+    alternatives, diagnostics = EVALUATOR.evaluate_with_diagnostics(booked, [dorm, unknown])
+
+    assert alternatives == []
+    assert diagnostics.hard_rejects == {
+        "Lůžko ve sdíleném pokoji nemůže nahradit soukromý pokoj": 1,
+        "Soukromý pokoj kandidáta není potvrzen": 1,
+    }
+
+
+def test_occupancy_currency_and_tax_basis_remain_hard_rejects() -> None:
+    booked = reservation(room_type="Triple Room", breakfast_included=None)
+    offers = [rate(adults=1), rate(currency="USD"), rate(taxes_included=False)]
+
+    alternatives, diagnostics = EVALUATOR.evaluate_with_diagnostics(booked, offers)
+
+    assert alternatives == []
+    assert diagnostics.hard_rejects == {
+        "Bezpečný konečný total včetně daní není potvrzen": 1,
+        "Jiná měna": 1,
+        "Požadované obsazení není potvrzeno": 1,
+    }

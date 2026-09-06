@@ -46,6 +46,7 @@ from app.web.presentation import (
     status_label,
 )
 from app.web.reservation_presentation import (
+    alternative_offer_diagnostics,
     alternative_offer_views,
     check_history_rows,
     group_reservation_cards,
@@ -375,11 +376,17 @@ def test_alternatives_are_information_only_and_not_price_surfaces() -> None:
     )
 
     alternatives = alternative_offer_views(item, no_match)
+    diagnostics = alternative_offer_diagnostics(item, no_match)
     card = reservation_card_view(item, [no_match], None)
 
     assert len(alternatives) == 1
     assert alternatives[0].price_label == "1 200,00 NOK"
     assert "Výhled není potvrzen" in alternatives[0].unknown_or_different
+    assert diagnostics is not None
+    assert diagnostics.offers_found == 1
+    assert diagnostics.alternatives_accepted == 1
+    assert diagnostics.hard_rejects == ()
+    assert diagnostics.soft_unknown_evidence == (("Výhled není potvrzen", 1),)
     assert card.alternative_count == 1
     assert card.current_price_label is None
     assert card.price_difference_label is None
@@ -648,6 +655,9 @@ def test_detail_renders_alternatives_without_delta_graph_or_price_drop(tmp_path)
     assert "Cena nabídky: <strong>1 200,00 NOK</strong>" in detail.text
     assert "Tato nabídka není bezpečně porovnatelná." in detail.text
     assert "Výhled není potvrzen" in detail.text
+    assert "Technická diagnostika alternativ" in detail.text
+    assert "Nalezené nabídky: 1 · Přijaté informační alternativy: 1" in detail.text
+    assert "Neověřeno: Výhled není potvrzen (1)" in detail.text
     assert "PRICE_DROP" not in detail.text
     assert "−120,54 NOK" not in detail.text
     assert "Vývoj bezpečně porovnatelných cen" not in detail.text
@@ -1399,6 +1409,18 @@ def test_pdf_upload_pipeline_renders_grand_hotel_and_responsive_review(tmp_path)
         if "{" in line
     )
     assert "style=" not in response.text
+
+
+def test_compact_ui_css_keeps_reservation_pages_within_the_viewport() -> None:
+    css = (Path(__file__).parents[2] / "app" / "web" / "static" / "ui.css").read_text()
+
+    assert "flex: 1 1 auto; min-width: 0" in css
+    assert "header > a { flex:0 0 100%; }" in css
+    assert ".check-history table { min-width:680px; }" in css
+    assert ".price-history__table table { min-width:440px; }" in css
+    assert ".price-history__table, .check-history { max-width:100%; overflow-x:auto;" in css
+    assert "overflow-wrap:anywhere" in css
+    assert "body { font-size: 15px; line-height: 1.45; overflow-x: hidden; }" not in css
 
 
 def test_pdf_upload_uses_confirmation_anchor_not_payment_cards_or_issue_date(tmp_path) -> None:  # noqa: ANN001

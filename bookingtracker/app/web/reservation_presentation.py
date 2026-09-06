@@ -7,7 +7,11 @@ from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
-from app.matching.alternatives import AlternativeOffer, AlternativeOfferEvaluator
+from app.matching.alternatives import (
+    AlternativeOffer,
+    AlternativeOfferDiagnostics,
+    AlternativeOfferEvaluator,
+)
 from app.matching.models import MatchClassification
 from app.pricing.models import PersistedPriceCheck, PriceCheckStatus
 from app.reservations.models import Reservation
@@ -100,6 +104,14 @@ class AlternativeOfferView:
     better: tuple[str, ...]
     unknown_or_different: tuple[str, ...]
     worse: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AlternativeDiagnosticsView:
+    offers_found: int
+    alternatives_accepted: int
+    hard_rejects: tuple[tuple[str, int], ...]
+    soft_unknown_evidence: tuple[tuple[str, int], ...]
 
 
 def _plural_nights(nights: int) -> str:
@@ -302,6 +314,25 @@ def alternative_offer_views(
         reservation, getattr(check, "rate_offers", [])
     )
     return tuple(_alternative_view(item) for item in alternatives)
+
+
+def alternative_offer_diagnostics(
+    reservation: Reservation, check: PersistedPriceCheck | None
+) -> AlternativeDiagnosticsView | None:
+    """Present only aggregate, sanitized Phase A diagnostics from stored snapshots."""
+    if not check or check.status not in {PriceCheckStatus.NO_MATCH, PriceCheckStatus.AMBIGUOUS}:
+        return None
+    if check.match_result and check.match_result.accepted:
+        return None
+    diagnostics: AlternativeOfferDiagnostics = AlternativeOfferEvaluator().diagnostics(
+        reservation, getattr(check, "rate_offers", [])
+    )
+    return AlternativeDiagnosticsView(
+        offers_found=diagnostics.offers_found,
+        alternatives_accepted=diagnostics.alternatives_accepted,
+        hard_rejects=tuple(diagnostics.hard_rejects.items()),
+        soft_unknown_evidence=tuple(diagnostics.soft_unknown_evidence.items()),
+    )
 
 
 def _alternative_view(item: AlternativeOffer) -> AlternativeOfferView:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
 REPOSITORY_ROOT = ROOT.parent
-RELEASE_VERSION = "0.8.0"
+RELEASE_VERSION = "0.8.1"
 
 
 def test_addon_build_context_is_self_contained() -> None:

@@ -1,10 +1,10 @@
 /* Phase 11A compact UI layer; app.css remains the legacy base. */
 :root { font-size: 15px; line-height: 1.45; }
-body { font-size: 15px; line-height: 1.45; overflow-x: hidden; }
+body { font-size: 15px; line-height: 1.45; }
 header { align-items: center; flex-wrap: wrap; padding: .7rem 1rem; }
 header > a { white-space: nowrap; }
-nav { gap: .2rem; flex: 1 1 30rem; flex-wrap: wrap; justify-content: flex-end; }
-nav a { font-size: 14px; padding: .35rem .55rem; border-radius: .3rem; }
+nav { gap: .2rem; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+nav a { font-size: 14px; padding: .35rem .55rem; border-radius: .3rem; overflow-wrap: anywhere; }
 nav a.is-active { background: #fff; color: #113c72; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #f6c344; outline-offset: 2px; }
 main { max-width: 1360px; padding: 1rem; }
@@ -21,7 +21,8 @@ textarea { min-height: 9rem; }
 .ui-back { margin: 0 0 .65rem; }
 .ui-back a { font-weight: 700; }
 .ui-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .7rem 0; }
-.ui-actions form { margin: 0; }
+.ui-actions form { margin: 0; min-width: 0; max-width: 100%; }
+.ui-actions .ui-button-link, .ui-actions button { max-width: 100%; white-space: normal; }
 .ui-primary-action { background: #0b6e3f; font-weight: 700; box-shadow: 0 2px 5px #0003; }
 .ui-primary-action:disabled { background: #718096; box-shadow: none; }
 details.ui-diagnostics { margin-top: .8rem; }
@@ -45,8 +46,8 @@ details.ui-diagnostics { margin-top: .8rem; }
 .reservation-image--fallback small { position:absolute; right:.55rem; bottom:.35rem; font-size:.75rem; opacity:.65; }
 .reservation-image-status { position:absolute; left:.65rem; bottom:.65rem; }
 .reservation-card__body { display:flex; flex:1; flex-direction:column; gap:.32rem; padding:.65rem .7rem .7rem; min-width:0; }
-.reservation-title { color:#162a43; font-size:16px; font-weight:800; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.reservation-stay { color:#40566f; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reservation-title { color:#162a43; font-size:16px; font-weight:800; line-height:1.25; overflow-wrap:anywhere; }
+.reservation-stay { color:#40566f; font-size:13px; overflow-wrap:anywhere; }
 .reservation-badge, .reservation-match, .reservation-status { display:inline-flex; align-self:flex-start; width:max-content; max-width:100%; box-sizing:border-box; border-radius:999px; padding:.15rem .4rem; font-size:11px; font-weight:700; line-height:1.25; }
 .reservation-badge--success, .reservation-price--success, .reservation-difference--success { color:#11733d; }
 .reservation-badge--success { background:#dcfce7; }
@@ -66,6 +67,7 @@ details.ui-diagnostics { margin-top: .8rem; }
 .reservation-card__footer { color:#61758a; font-size:11px; line-height:1.3; padding-top:.15rem; }
 .reservation-detail-hero { display:block; padding:1rem; overflow:hidden; }
 .reservation-detail-hero h1 { margin-top:0; }
+.reservation-detail-hero h1, .reservation-detail-hero .reservation-stay { overflow-wrap:anywhere; }
 .reservation-prices--detail { max-width:430px; margin-top:.8rem; }
 .reservation-flash { padding:.7rem .8rem; background:#e7f2ff; border:1px solid #b9d8f5; border-radius:.5rem; }
 svg { width:100%; height:auto; max-width:600px; }
@@ -73,9 +75,13 @@ svg { width:100%; height:auto; max-width:600px; }
 .price-history__booked { stroke:#61758a; stroke-dasharray:5 4; stroke-width:2; }
 .price-history__line { fill:none; stroke:#075ea5; stroke-width:3; }
 .price-history__point { fill:#075ea5; stroke:#fff; stroke-width:2; }
-.price-history__table, .check-history { overflow-x:auto; }
+.price-history__table, .check-history { max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
 .price-history table, .check-history table { width:100%; border-collapse:collapse; font-size:13px; }
+.price-history__table table { min-width:440px; }
+.check-history table { min-width:680px; }
 .price-history th, .price-history td, .check-history th, .check-history td { padding:.5rem; text-align:left; vertical-align:top; border-bottom:1px solid #dbe3eb; }
+.ui-last-check { display:block; }
+details.ui-diagnostics { max-width:100%; overflow-wrap:anywhere; }
 @media (min-width:1200px) { main { max-width:1360px; } }
-@media (max-width: 699px) { h1 { font-size: 24px; } main { padding: .75rem; } nav { justify-content: flex-start; } nav a { padding: .4rem .5rem; } }
+@media (max-width: 699px) { h1 { font-size: 24px; } main { padding: .75rem; } header > a { flex:0 0 100%; } nav { flex:1 1 100%; justify-content: flex-start; } nav a { padding: .4rem .5rem; } }
 @media (max-width:699px) { .reservation-page-heading { align-items:flex-start; } .reservation-page-heading .ui-button-link { white-space:nowrap; } .reservation-grid { grid-template-columns:1fr; } .check-history { font-size:12px; } }

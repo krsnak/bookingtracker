@@ -94,6 +94,7 @@ from app.web.presentation import (
     status_label,
 )
 from app.web.reservation_presentation import (
+    alternative_offer_diagnostics,
     alternative_offer_views,
     check_history_rows,
     group_reservation_cards,
@@ -592,6 +593,9 @@ def create_app(
             schedule=actual_runner.schedules.get(item.id),
             price_history=price_history_view(item, checks_for_detail),
             alternatives=alternative_offer_views(
+                item, checks_for_detail[0] if checks_for_detail else None
+            ),
+            alternative_diagnostics=alternative_offer_diagnostics(
                 item, checks_for_detail[0] if checks_for_detail else None
             ),
             history_rows=check_history_rows(item, checks_for_detail),

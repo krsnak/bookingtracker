@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from decimal import Decimal
 from difflib import SequenceMatcher
 
@@ -26,21 +27,56 @@ class AlternativeOffer(BaseModel):
     diagnostic_index: int = Field(default=0, ge=0, exclude=True)
 
 
+class AlternativeOfferDiagnostics(BaseModel):
+    """Aggregated, non-identifying explanation of a Phase A evaluation."""
+
+    offers_found: int = Field(ge=0)
+    alternatives_accepted: int = Field(ge=0)
+    hard_rejects: dict[str, int] = Field(default_factory=dict)
+    soft_unknown_evidence: dict[str, int] = Field(default_factory=dict)
+
+
 class AlternativeOfferEvaluator:
     """Find a few same-search alternatives without relaxing exact matching."""
 
     def evaluate(self, reservation: Reservation, offers: list[RateOffer]) -> list[AlternativeOffer]:
-        candidates = [
-            alternative
-            for index, offer in enumerate(offers)
-            if (alternative := self._evaluate(reservation, offer, index)) is not None
-        ]
-        return sorted(candidates, key=self._sort_key)[:3]
+        alternatives, _diagnostics = self.evaluate_with_diagnostics(reservation, offers)
+        return alternatives
+
+    def diagnostics(
+        self, reservation: Reservation, offers: list[RateOffer]
+    ) -> AlternativeOfferDiagnostics:
+        """Describe snapshot outcomes without exposing candidate-specific source data."""
+        _alternatives, diagnostics = self.evaluate_with_diagnostics(reservation, offers)
+        return diagnostics
+
+    def evaluate_with_diagnostics(
+        self, reservation: Reservation, offers: list[RateOffer]
+    ) -> tuple[list[AlternativeOffer], AlternativeOfferDiagnostics]:
+        candidates: list[AlternativeOffer] = []
+        hard_rejects: Counter[str] = Counter()
+        soft_unknown_evidence: Counter[str] = Counter()
+        for index, offer in enumerate(offers):
+            rejection_reasons = self._hard_rejection_reasons(reservation, offer)
+            if rejection_reasons:
+                hard_rejects.update(rejection_reasons)
+                continue
+            alternative = self._evaluate(reservation, offer, index)
+            assert alternative is not None
+            candidates.append(alternative)
+            soft_unknown_evidence.update(alternative.unknown_or_different)
+        alternatives = sorted(candidates, key=self._sort_key)[:3]
+        return alternatives, AlternativeOfferDiagnostics(
+            offers_found=len(offers),
+            alternatives_accepted=len(candidates),
+            hard_rejects=dict(sorted(hard_rejects.items())),
+            soft_unknown_evidence=dict(sorted(soft_unknown_evidence.items())),
+        )
 
     def _evaluate(
         self, reservation: Reservation, rate: RateOffer, diagnostic_index: int
     ) -> AlternativeOffer | None:
-        if not self._minimum_eligible(reservation, rate):
+        if self._hard_rejection_reasons(reservation, rate):
             return None
 
         preserved: list[str] = ["Stejné ubytování", "Požadované obsazení"]
@@ -73,39 +109,62 @@ class AlternativeOfferEvaluator:
         )
 
     @staticmethod
-    def _minimum_eligible(reservation: Reservation, rate: RateOffer) -> bool:
+    def _hard_rejection_reasons(reservation: Reservation, rate: RateOffer) -> list[str]:
+        """Return only structural or explicitly worse Phase A safety boundaries."""
+        rejected: list[str] = []
         if not reservation.property_name or not rate.property_name:
-            return False
-        if normalized_tokens(reservation.property_name) != normalized_tokens(rate.property_name):
-            return False
+            rejected.append("Ubytování není potvrzeno")
+        elif normalized_tokens(reservation.property_name) != normalized_tokens(rate.property_name):
+            rejected.append("Jiné ubytování")
         _score, _warning, occupancy_rejection = ExactReservationMatcher._occupancy(
             reservation, rate
         )
-        if occupancy_rejection or reservation.rooms_count != 1:
-            return False
+        if reservation.rooms_count != 1:
+            rejected.append("Kompatibilní počet pokojů není potvrzen")
+        elif occupancy_rejection:
+            rejected.append("Požadované obsazení není potvrzeno")
         if (
             reservation.currency != rate.currency
             or rate.taxes_included is not True
             or rate.current_price <= 0
         ):
-            return False
+            if reservation.currency != rate.currency:
+                rejected.append("Jiná měna")
+            if rate.taxes_included is not True or rate.current_price <= 0:
+                rejected.append("Bezpečný konečný total včetně daní není potvrzen")
         booked = extract_room_facts(reservation.room_type or "")
-        if (
-            booked.accommodation_kind == "private_room"
-            and rate.room_facts.accommodation_kind != "private_room"
+        if booked.accommodation_kind == "private_room":
+            if rate.room_facts.accommodation_kind == "dorm_bed":
+                rejected.append("Lůžko ve sdíleném pokoji nemůže nahradit soukromý pokoj")
+            elif rate.room_facts.accommodation_kind != "private_room":
+                rejected.append("Soukromý pokoj kandidáta není potvrzen")
+
+        # Missing evidence is informative rather than rejecting. A documented downgrade of a
+        # booked protection remains a Phase A safety boundary.
+        if reservation.breakfast_included is True and rate.breakfast_included is False:
+            rejected.append("Snídaně je explicitně horší")
+        if reservation.free_cancellation is True and (
+            rate.free_cancellation is False or rate.non_refundable is True
         ):
-            return False
-        # Explicit degradation of rate protections is never a recommended alternative.
-        _score, _warning, cancellation_rejection, _improvement = (
-            ExactReservationMatcher._cancellation(reservation, rate)
-        )
-        _score, _warning, payment_rejection, _improvement = ExactReservationMatcher._payment(
-            reservation, rate
-        )
-        _score, _warning, meal_rejection, _improvement = (
-            ExactReservationMatcher._meal_and_breakfast(reservation, rate)
-        )
-        return not any((cancellation_rejection, payment_rejection, meal_rejection))
+            rejected.append("Storno podmínky jsou explicitně horší")
+        if (
+            reservation.cancellation_deadline
+            and rate.cancellation_deadline
+            and rate.cancellation_deadline < reservation.cancellation_deadline
+        ):
+            rejected.append("Termín storna je explicitně horší")
+        if reservation.payment_conditions:
+            booked_payment = reservation.payment_conditions.casefold()
+            candidate_payment = (rate.payment_conditions or "").casefold()
+            booked_pay_property = (
+                "pay at property" in booked_payment or "zaplatíte v ubytování" in booked_payment
+            )
+            candidate_prepay = (
+                "prepayment required" in candidate_payment or "pay in advance" in candidate_payment
+            )
+            if booked_pay_property and candidate_prepay:
+                rejected.append("Platební podmínky jsou explicitně horší")
+        return rejected
 
     @staticmethod
     def _rate_terms(

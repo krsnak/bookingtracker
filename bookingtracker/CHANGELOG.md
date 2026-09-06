@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.1
+
+- Refine Phase A information-only alternatives: unknown breakfast, meal, cancellation, and
+  payment evidence is shown as soft unknown evidence instead of an automatic hard reject.
+  Explicitly worse breakfast, cancellation, or payment evidence remains a hard reject, while the
+  structural property, occupancy, private-room, currency, and tax-inclusive-total safety baseline
+  remains unchanged.
+- Keep the comparable matcher and pricing unchanged. Alternatives remain non-comparable: they
+  never create `PRICE_DROP`, a delta, or main price-graph points. The detail now includes only
+  sanitized aggregate alternative diagnostics from persisted snapshots.
+- Fix mobile horizontal overflow caused by navigation sizing. Wide history and price tables scroll
+  within their own containers; long names, actions, graphs, images, and keyboard focus remain
+  responsive across reservation dashboard and detail views.
+
 ## 0.8.0
 
 - Add local property-photo upload from reservation detail: clicking the placeholder or existing
