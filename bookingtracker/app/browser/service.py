@@ -167,6 +167,10 @@ class BookingBrowserService:
                 if self._state in {BrowserState.LOGGED_OUT, BrowserState.LOGIN_REQUIRED}:
                     return self._result(url, NavigationStatus.LOGIN_REQUIRED, page)
                 if not self._wait_for_availability_surface(page):
+                    if self._has_discovery_surface(page):
+                        self._last_successful_navigation = datetime.now()
+                        self._state = BrowserState.READY
+                        return self._result(url, NavigationStatus.SUCCESS, page)
                     self._activate_availability(page)
                     self._refresh_page_state(page)
                     if self._state is BrowserState.CAPTCHA_REQUIRED:
@@ -174,6 +178,10 @@ class BookingBrowserService:
                     if self._state in {BrowserState.LOGGED_OUT, BrowserState.LOGIN_REQUIRED}:
                         return self._result(url, NavigationStatus.LOGIN_REQUIRED, page)
                     if not self._wait_for_availability_surface(page):
+                        if self._has_discovery_surface(page):
+                            self._last_successful_navigation = datetime.now()
+                            self._state = BrowserState.READY
+                            return self._result(url, NavigationStatus.SUCCESS, page)
                         if page.locator(BookingSelectors.UNKNOWN_OFFER_HINT).count():  # type: ignore[attr-defined]
                             return self._result(url, NavigationStatus.SUCCESS, page)
                         return self._result(url, NavigationStatus.AVAILABILITY_UNKNOWN, page)
@@ -211,6 +219,15 @@ class BookingBrowserService:
             return True
         except PlaywrightTimeoutError:
             # The parser remains authoritative for unsupported structures.
+            return False
+
+    @staticmethod
+    def _has_discovery_surface(page: object) -> bool:
+        """Recognize rendered Booking search cards without treating them as rate offers."""
+        selector = f'[data-testid="{BookingSelectors.SEARCH_CARD_TEST_ID}"]'
+        try:
+            return page.locator(selector).count() > 0  # type: ignore[attr-defined]
+        except (AttributeError, RuntimeError, PlaywrightError):
             return False
 
     @staticmethod

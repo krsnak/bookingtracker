@@ -18,6 +18,22 @@ Only explicit same-property, occupancy, currency, tax-total, and private-room ev
 minimum gate; documented similarity ranks before price. Replacement preferences are intentionally
 not implemented yet.
 
+## Průzkum alternativ v jiném ubytování — Phase 1
+
+Phase 1 umí pouze lokálně a dočasně vyhledat kandidáty z výsledků Booking.com. Cena uvedená na
+kartě výsledku je jen stopa pro otevření detailu: není to cenová nabídka, nesrovnává se s rezervací
+a nikdy nemůže vytvořit rozdíl ceny, bod v grafu, historické minimum ani upozornění `PRICE_DROP`.
+
+Alternativa z jiného ubytování se objeví pouze jako informačně kvalifikovaná po ověření detailu
+konkrétní sazby: stejného obsazení, jídla/snídaně bez zhoršení, storna nejméně stejně výhodného,
+platebních podmínek a pokoje ekvivalentního nebo objektivně prokazatelně lepšího, stejné měny a
+konečné ceny včetně daní a poplatků. Detail musí také výslovně uvádět skóre Booking.com a
+spolehlivě rozpoznaný počet recenzí; kategorie/hvězdy a poloha či vzdálenost se zachovají, jsou-li
+na stránce uvedeny. Nejde o náhradu rezervace ani o doporučení nejlevnějšího hotelu.
+
+Výsledek se v Phase 1 neukládá do databáze ani do cenové historie a nespouští alerty. Přihlášení a
+CAPTCHA zůstávají ruční; průzkum je při jejich zobrazení ukončen bez obcházení ochrany.
+
 ## Local property photo
 
 The reservation detail supports one manually selected JPEG, PNG, or WebP photo. BookingTracker

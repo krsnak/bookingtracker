@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -65,6 +66,35 @@ class RateOffer(BaseModel):
     @field_validator("currency")
     @classmethod
     def normalize_currency(cls, value: str) -> str:
+        return value.upper()
+
+
+class PropertyQuality(BaseModel):
+    """Explicit hotel-quality evidence from a Booking result or detail surface."""
+
+    booking_score: Decimal | None = Field(default=None, ge=0, le=10)
+    review_count: int | None = Field(default=None, ge=0)
+    review_count_confident: bool = False
+    star_category: str | None = None
+    location_or_distance: str | None = None
+    evidence: dict[str, str] = Field(default_factory=dict)
+
+
+class SearchCard(BaseModel):
+    """A discovery lead only; its headline price is never a rate offer or comparable price."""
+
+    property_name: str = Field(min_length=1)
+    detail_url: str = Field(min_length=1)
+    headline_price: Decimal = Field(gt=0)
+    headline_currency: str = Field(min_length=3, max_length=3)
+    comparable: Literal[False] = False
+    quality: PropertyQuality = Field(default_factory=PropertyQuality)
+    source_text: str = Field(repr=False)
+    evidence: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("headline_currency")
+    @classmethod
+    def normalize_headline_currency(cls, value: str) -> str:
         return value.upper()
 
 

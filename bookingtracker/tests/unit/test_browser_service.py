@@ -392,6 +392,23 @@ def test_missing_availability_surface_is_availability_unknown(tmp_path: Path) ->
     assert len(page.wait_for_selector_calls) == 2
 
 
+def test_search_result_cards_are_successful_navigation_but_not_availability(tmp_path: Path) -> None:
+    service, _, _ = build_service(tmp_path)
+    service.start()
+    page = service.current_page()
+    assert page is not None
+    page.wait_for_selector_error = PlaywrightTimeoutError("availability not rendered")
+    page.selector_counts['[data-testid="property-card"]'] = 3
+
+    result = service.navigate("https://www.booking.com/searchresults.html?ss=Nice")
+
+    assert result.status is NavigationStatus.SUCCESS
+    assert page.activation_clicks == 0
+    assert page.scroll_calls == 0
+    assert len(page.goto_calls) == 1
+    assert len(page.wait_for_selector_calls) == 1
+
+
 def test_empty_shell_activates_once_without_second_goto(tmp_path: Path) -> None:
     service, _, _ = build_service(tmp_path)
     service.start()

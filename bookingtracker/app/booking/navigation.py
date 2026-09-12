@@ -46,3 +46,39 @@ def build_booking_search_url(canonical_url: str, reservation: Reservation) -> st
 
     parsed = urlsplit(canonical)
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), ""))
+
+
+def build_booking_discovery_url(reservation: Reservation, destination: str) -> str:
+    """Build a broad Booking search used only to discover detail pages.
+
+    This intentionally uses no card price and does not identify an offer as
+    comparable to the reservation.
+    """
+    destination = destination.strip()
+    required = {
+        "destination": destination or None,
+        "check_in": reservation.check_in,
+        "check_out": reservation.check_out,
+        "adults": reservation.adults,
+        "children": reservation.children,
+        "rooms_count": reservation.rooms_count,
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
+        raise BookingSearchUrlError(
+            "reservation discovery facts are incomplete: " + ", ".join(sorted(missing))
+        )
+    query: list[tuple[str, str]] = [
+        ("ss", destination),
+        ("checkin", reservation.check_in.isoformat()),  # type: ignore[union-attr]
+        ("checkout", reservation.check_out.isoformat()),  # type: ignore[union-attr]
+        ("group_adults", str(reservation.adults)),
+        ("group_children", str(reservation.children)),
+        ("no_rooms", str(reservation.rooms_count)),
+    ]
+    if reservation.children and reservation.children_ages:
+        if len(reservation.children_ages) == reservation.children:
+            query.extend(("age", str(age)) for age in reservation.children_ages)
+    if reservation.currency:
+        query.append(("selected_currency", reservation.currency.upper()))
+    return urlunsplit(("https", "www.booking.com", "/searchresults.html", urlencode(query), ""))

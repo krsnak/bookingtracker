@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Přidán izolovaný informační průzkum Phase 1 pro kandidáty z jiných ubytování. Cena na kartě
+  vyhledávání je výhradně stopa k detailu a nikdy není `RateOffer`, porovnatelná cena,
+  `PRICE_DROP`, grafový bod ani alert.
+- Kandidát se kvalifikuje pouze po detailním ověření obsazení, pokoje ekvivalentního nebo
+  objektivně prokazatelně lepšího, jídla/snídaně, storna, platebních podmínek, měny, konečného
+  součtu včetně daní a explicitního skóre Booking.com se spolehlivě rozpoznaným počtem recenzí.
+  Kategorie/hvězdy a poloha či vzdálenost se předávají pouze, když je detail výslovně uvádí.
+- Phase 1 je paměťová a bez změny databáze/API: nemění exact tracker, same-property alternativy,
+  price history, scheduler ani alerty. Login a CAPTCHA zůstávají ruční.
+
 ## 0.8.2
 
 - Show a safe Czech aggregate diagnostic for Phase A informational alternatives from the existing

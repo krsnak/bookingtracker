@@ -31,6 +31,17 @@ class BookingSelectors:
         '[data-testid*="current-price"], [data-testid*="price-and-discounted-price"]'
     )
 
+    # Search-result cards are discovery leads only. Their price is deliberately
+    # kept outside the availability/rate selector vocabulary.
+    SEARCH_CARD_TEST_ID = "property-card"
+    SEARCH_CARD_LINK_TEST_ID = "property-card-link"
+    SEARCH_CARD_NAME_TEST_ID = "property-card-name"
+    SEARCH_CARD_HEADLINE_PRICE_TEST_ID = "property-card-price"
+    BOOKING_SCORE_TEST_ID = "review-score"
+    REVIEW_COUNT_TEST_ID = "review-count"
+    STAR_CATEGORY_TEST_ID = "property-category"
+    LOCATION_DISTANCE_TEST_ID = "location-or-distance"
+
     # Developer capture roots only. They define a narrow DOM boundary and are
     # not interpreted as offers; offer parsing continues to use the selectors
     # above through BookingRateParser.

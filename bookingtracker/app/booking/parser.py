@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
+from decimal import Decimal
+from urllib.parse import urljoin
 
 from app.booking.html_tree import Node, parse_html
-from app.booking.models import ParseResult, ParseStatus, RateOffer
+from app.booking.models import ParseResult, ParseStatus, PropertyQuality, RateOffer, SearchCard
 from app.booking.normalization import (
     normalize_room_name,
     parse_cancellation_deadline,
@@ -14,6 +17,101 @@ from app.booking.normalization import (
 )
 from app.booking.room_facts import extract_room_facts
 from app.booking.selectors import BookingSelectors
+from app.reservations.import_document import canonical_booking_hotel_url
+
+
+class BookingSearchCardParser:
+    """Parse search cards into non-comparable detail-page discovery leads."""
+
+    def parse_html(self, html: str, source_url: str) -> list[SearchCard]:
+        root = parse_html(html)
+        cards: list[SearchCard] = []
+        for card in root.all_test_id(BookingSelectors.SEARCH_CARD_TEST_ID):
+            parsed = self._parse_card(card, source_url)
+            if parsed is not None:
+                cards.append(parsed)
+        return cards
+
+    def _parse_card(self, card: Node, source_url: str) -> SearchCard | None:
+        link = card.first_test_id(BookingSelectors.SEARCH_CARD_LINK_TEST_ID)
+        name = card.first_test_id(BookingSelectors.SEARCH_CARD_NAME_TEST_ID)
+        price = card.first_test_id(BookingSelectors.SEARCH_CARD_HEADLINE_PRICE_TEST_ID)
+        if link is None or name is None or price is None:
+            return None
+        detail_url = canonical_booking_hotel_url(urljoin(source_url, link.attrs.get("href", "")))
+        parsed_price = parse_price(price.text())
+        if not detail_url or not name.text() or not parsed_price:
+            return None
+        headline_price, headline_currency = parsed_price
+        return SearchCard(
+            property_name=name.text(),
+            detail_url=detail_url,
+            headline_price=headline_price,
+            headline_currency=headline_currency,
+            quality=BookingPropertyQualityParser().parse_node(card),
+            source_text=card.text(),
+            evidence={
+                "card_selector": f"data-testid={BookingSelectors.SEARCH_CARD_TEST_ID}",
+                "detail_link_selector": f"data-testid={BookingSelectors.SEARCH_CARD_LINK_TEST_ID}",
+                "headline_price_selector": (
+                    f"data-testid={BookingSelectors.SEARCH_CARD_HEADLINE_PRICE_TEST_ID}"
+                ),
+            },
+        )
+
+
+class BookingPropertyQualityParser:
+    """Extract only explicit hotel-quality labels; absent values remain unknown."""
+
+    def parse_html(self, html: str) -> PropertyQuality:
+        return self.parse_node(parse_html(html))
+
+    def parse_node(self, node: Node) -> PropertyQuality:
+        score = node.first_test_id(BookingSelectors.BOOKING_SCORE_TEST_ID)
+        reviews = node.first_test_id(BookingSelectors.REVIEW_COUNT_TEST_ID)
+        category = node.first_test_id(BookingSelectors.STAR_CATEGORY_TEST_ID)
+        location = node.first_test_id(BookingSelectors.LOCATION_DISTANCE_TEST_ID)
+        score_value = self._score(score.text()) if score else None
+        review_count = self._review_count(reviews.text()) if reviews else None
+        evidence: dict[str, str] = {}
+        for key, value in (
+            ("booking_score", score),
+            ("review_count", reviews),
+            ("star_category", category),
+            ("location_or_distance", location),
+        ):
+            if value:
+                evidence[key] = f"data-testid={value.attrs.get('data-testid')}"
+        return PropertyQuality(
+            booking_score=score_value,
+            review_count=review_count,
+            review_count_confident=review_count is not None,
+            star_category=category.text() if category and category.text() else None,
+            location_or_distance=location.text() if location and location.text() else None,
+            evidence=evidence,
+        )
+
+    @staticmethod
+    def _score(value: str) -> Decimal | None:
+        match = re.fullmatch(r"\s*(\d{1,2}(?:[.,]\d+)?)\s*", value)
+        if match is None:
+            return None
+        score = Decimal(match.group(1).replace(",", "."))
+        return score if score <= Decimal("10") else None
+
+    @staticmethod
+    def _review_count(value: str) -> int | None:
+        # An abbreviated or fractional count (for example ``1.2K``) is not a
+        # reliable count. Preserve the distinction rather than inventing 12.
+        match = re.search(
+            r"(?<![\d\s,.])(\d+|\d{1,3}(?:[\s,.]\d{3})+)\s*(?:reviews?|hodnocen[íi])\b",
+            value,
+            re.I,
+        )
+        if match is None:
+            return None
+        digits = re.sub(r"\D", "", match.group(1))
+        return int(digits) if digits else None
 
 
 class BookingRateParser:
