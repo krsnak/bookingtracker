@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 - Přidán izolovaný informační průzkum Phase 1 pro kandidáty z jiných ubytování. Cena na kartě
   vyhledávání je výhradně stopa k detailu a nikdy není `RateOffer`, porovnatelná cena,
