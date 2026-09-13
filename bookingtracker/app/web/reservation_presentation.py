@@ -12,6 +12,7 @@ from app.matching.alternatives import (
     AlternativeOfferDiagnostics,
     AlternativeOfferEvaluator,
 )
+from app.matching.cross_property import QualifiedDiscoveryAlternative
 from app.matching.models import MatchClassification
 from app.pricing.models import PersistedPriceCheck, PriceCheckStatus
 from app.reservations.models import Reservation
@@ -114,6 +115,45 @@ class AlternativeDiagnosticsView:
     hard_rejects: tuple[str, ...]
     soft_unknown_evidence: tuple[str, ...]
     single_hard_rejects: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DiscoveryAlternativeView:
+    property_name: str
+    detail_url: str
+    room_name: str
+    price_label: str
+    category_label: str
+    objective_improvements: tuple[str, ...]
+    booking_score_label: str
+    review_count_label: str
+    star_category: str | None
+    location_or_distance: str | None
+
+
+def discovery_alternative_views(
+    alternatives: list[QualifiedDiscoveryAlternative],
+) -> tuple[DiscoveryAlternativeView, ...]:
+    """Present only detail-verified, backend-qualified cross-property options."""
+    return tuple(
+        DiscoveryAlternativeView(
+            property_name=item.property_name,
+            detail_url=item.detail_url,
+            room_name=item.rate.room_name,
+            price_label=format_money(item.rate.current_price, item.rate.currency),
+            category_label=(
+                "Lepší alternativa"
+                if item.room_category == "better"
+                else "Ekvivalentní alternativa"
+            ),
+            objective_improvements=tuple(item.objective_improvements),
+            booking_score_label=f"Hodnocení Booking.com: {item.quality.booking_score:f}/10",
+            review_count_label=f"{item.quality.review_count:,}".replace(",", " ") + " recenzí",
+            star_category=item.quality.star_category,
+            location_or_distance=item.quality.location_or_distance,
+        )
+        for item in alternatives
+    )
 
 
 def _plural_nights(nights: int) -> str:

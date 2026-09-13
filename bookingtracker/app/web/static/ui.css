@@ -81,6 +81,11 @@ svg { width:100%; height:auto; max-width:600px; }
 .check-history table { min-width:680px; }
 .price-history th, .price-history td, .check-history th, .check-history td { padding:.5rem; text-align:left; vertical-align:top; border-bottom:1px solid #dbe3eb; }
 .ui-last-check { display:block; }
+.discovery-panel { display:block; max-width:620px; }
+.discovery-panel form { margin-top:.7rem; }
+.discovery-alternative { border-left:4px solid #0b6e3f; }
+.discovery-alternative__category { color:#0b6e3f; font-weight:700; }
+.discovery-empty { padding:.75rem; background:#eef3f7; border-radius:.35rem; }
 details.ui-diagnostics { max-width:100%; overflow-wrap:anywhere; }
 @media (min-width:1200px) { main { max-width:1360px; } }
 @media (max-width: 699px) { h1 { font-size: 24px; } main { padding: .75rem; } header > a { flex:0 0 100%; } nav { flex:1 1 100%; justify-content: flex-start; } nav a { padding: .4rem .5rem; } }

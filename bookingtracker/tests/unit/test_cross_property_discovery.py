@@ -44,6 +44,8 @@ def test_only_detail_verified_cross_property_rate_can_qualify() -> None:
     assert len(result.qualified) == 1
     alternative = result.qualified[0]
     assert alternative.comparable is False
+    assert alternative.room_category == "equivalent"
+    assert alternative.objective_improvements == []
     assert alternative.rate.current_price == Decimal("120")
     assert alternative.rate.current_price != card.headline_price
     assert alternative.quality.booking_score == Decimal("8.7")

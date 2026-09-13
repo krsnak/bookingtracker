@@ -37,6 +37,7 @@ from app.alerts.notifications import (
     sanitize_notification_error,
 )
 from app.alerts.service import AlertService, check_failed_is_superseded
+from app.booking.discovery import CrossPropertyDiscoveryService, DiscoveryResult, DiscoveryStatus
 from app.booking.parser import BookingRateParser
 from app.browser.executor import ThreadBoundBookingBrowser
 from app.browser.lease import ManualBrowserLease
@@ -97,6 +98,7 @@ from app.web.reservation_presentation import (
     alternative_offer_diagnostics,
     alternative_offer_views,
     check_history_rows,
+    discovery_alternative_views,
     group_reservation_cards,
     price_history_view,
     reservation_card_view,
@@ -247,6 +249,7 @@ def create_app(
     app.state.extractor = ReservationExtractor()
     app.state.csrf = secrets.token_urlsafe(24)
     app.state.pending: dict[str, object] = {}
+    app.state.discovery_results: dict[str, DiscoveryResult] = {}
     app.state.static_css_revisions = {
         name: static_asset_revision(ROOT / "static" / name)
         for name in ("app.css", "ui.css", "review.css")
@@ -598,6 +601,12 @@ def create_app(
             alternative_diagnostics=alternative_offer_diagnostics(
                 item, checks_for_detail[0] if checks_for_detail else None
             ),
+            discovery_result=app.state.discovery_results.get(reservation_id),
+            discovery_alternatives=discovery_alternative_views(
+                app.state.discovery_results.get(
+                    reservation_id, DiscoveryResult(status=DiscoveryStatus.SUCCESS)
+                ).alternatives
+            ),
             history_rows=check_history_rows(item, checks_for_detail),
             flash=flash,
         )
@@ -753,6 +762,45 @@ def create_app(
         else:
             raise HTTPException(404, "Rezervace nebyla nalezena.")
         app.state.reservation_flash[reservation_id] = flash
+        return RedirectResponse(
+            url_for_request(request, "reservation_detail", reservation_id=reservation_id),
+            status_code=303,
+        )
+
+    @app.post("/reservations/{reservation_id}/discover-alternatives", name="discover_alternatives")
+    def discover_alternatives(
+        request: Request,
+        reservation_id: str,
+        csrf_token: str = Form(),
+        destination: str = Form(""),
+    ):
+        csrf(csrf_token)
+        item = reservations.get(UUID(reservation_id))
+        if item is None:
+            raise HTTPException(404, "Reservation not found")
+        if not actual_runner.begin_manual_session(lease.acquire):
+            app.state.reservation_flash[reservation_id] = (
+                "Hledání alternativ nelze spustit během otevřené vzdálené relace nebo kontroly."
+            )
+        else:
+            try:
+                result = CrossPropertyDiscoveryService(browser).discover(item, destination)
+                app.state.discovery_results[reservation_id] = result
+                app.state.reservation_flash[reservation_id] = {
+                    DiscoveryStatus.SUCCESS: (
+                        "Hledání alternativ dokončeno. Výsledek je pouze informační."
+                    ),
+                    DiscoveryStatus.INCOMPLETE_RESERVATION: (
+                        "Pro hledání alternativ doplňte termín, hosty, počet pokojů a destinaci."
+                    ),
+                    DiscoveryStatus.MANUAL_ACTION_REQUIRED: (
+                        "Booking.com vyžaduje ruční přihlášení nebo vyřešení výzvy; hledání bylo zastaveno."
+                    ),
+                    DiscoveryStatus.NAVIGATION_ERROR: "Hledání alternativ se nepodařilo otevřít.",
+                    DiscoveryStatus.PARSER_ERROR: "Výsledky alternativ se nepodařilo bezpečně přečíst.",
+                }[result.status]
+            finally:
+                lease.release()
         return RedirectResponse(
             url_for_request(request, "reservation_detail", reservation_id=reservation_id),
             status_code=303,

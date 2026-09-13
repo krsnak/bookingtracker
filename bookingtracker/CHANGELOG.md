@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1
+
+- Přidáno ruční hledání jiného ubytování do detailu rezervace. Vyžaduje destinaci, používá
+  stávající chráněnou relaci prohlížeče a vrací pouze detailně ověřené alternativy přijaté
+  backendem; výsledek zůstává pouze v paměti.
+- Alternativy jsou zřetelně označeny jako ekvivalentní nebo prokazatelně lepší a zobrazují jen
+  ověřený pokoj, konečnou cenu včetně daní, skóre/reference Booking.com a explicitní zlepšení.
+  Nikdy nevytvářejí porovnatelnou cenu, rozdíl, grafový bod, historii kontroly ani upozornění.
+- Přidány bezpečné prázdné, navigační a ruční-akční stavy. Přihlášení nebo CAPTCHA hledání
+  zastaví a vyžaduje ruční postup přes prohlížeč; během hledání je plánovaná kontrola blokována.
+
 ## 0.9.0
 
 - Přidán izolovaný informační průzkum Phase 1 pro kandidáty z jiných ubytování. Cena na kartě

@@ -20,6 +20,8 @@ from app.browser.models import (
     AuthenticationState,
     BrowserHealth,
     BrowserState,
+    NavigationResult,
+    NavigationStatus,
     RemoteDesktopHealth,
     RemoteDesktopState,
 )
@@ -158,6 +160,33 @@ class FakeBrowserService:
 
     def refresh_state(self) -> BrowserHealth:
         return self.health()
+
+
+class FixtureDiscoveryBrowserService(FakeBrowserService):
+    def __init__(self, *, navigation_status: NavigationStatus = NavigationStatus.SUCCESS) -> None:
+        super().__init__()
+        self.navigation_status = navigation_status
+        self.content = ""
+
+    def navigate(self, url: str) -> NavigationResult:
+        fixture = (
+            "booking_cross_property_search.html"
+            if "searchresults.html" in url
+            else "booking_cross_property_detail.html"
+        )
+        self.content = (Path(__file__).parents[1] / "fixtures" / fixture).read_text()
+        return NavigationResult(
+            requested_url=url,
+            final_url=url,
+            title="fixture",
+            status=self.navigation_status,
+            authenticated_state=AuthenticationState.AUTHENTICATED,
+            manual_action_required=self.navigation_status
+            in {NavigationStatus.LOGIN_REQUIRED, NavigationStatus.CAPTCHA_REQUIRED},
+        )
+
+    def current_page(self):  # noqa: ANN201
+        return type("FixturePage", (), {"content": lambda page: self.content})()
 
 
 class ManualCheckPipeline:
@@ -720,6 +749,68 @@ def test_detail_renders_alternatives_without_delta_graph_or_price_drop(tmp_path)
     assert "PRICE_DROP" not in detail.text
     assert "−120,54 NOK" not in detail.text
     assert "Vývoj bezpečně porovnatelných cen" not in detail.text
+
+
+def test_detail_discovers_only_detail_verified_cross_property_alternatives(tmp_path) -> None:  # noqa: ANN001
+    browser_service = FixtureDiscoveryBrowserService()
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        browser_service=browser_service,
+        start_browser_on_startup=False,
+    )
+    stored = app.state.reservations.create(
+        checkable_reservation().model_copy(
+            update={
+                "room_type": "Alternative Triple Room",
+                "currency": "EUR",
+                "children": 0,
+            }
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/reservations/{stored.id}/discover-alternatives",
+            data={"csrf_token": app.state.csrf, "destination": "Nice"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        detail = client.get(f"/reservations/{stored.id}")
+
+    assert "Hledat jiné ubytování" in detail.text
+    assert "Verified Alternative Hotel" in detail.text
+    assert "Ekvivalentní alternativa" in detail.text
+    assert "Cena nabídky: <strong>120,00 EUR</strong>" in detail.text
+    assert "Hodnocení Booking.com: 8.7/10 · 1 234 recenzí" in detail.text
+    assert "Alternativa není bezpečně porovnatelná s rezervací" in detail.text
+    assert "Otevřít nabídku na Booking.com" in detail.text
+    assert app.state.history.list_for_reservation(stored.id) == []
+    assert app.state.manual_lease.active is False
+
+
+def test_detail_stops_cross_property_discovery_for_manual_booking_action(tmp_path) -> None:  # noqa: ANN001
+    app = create_app(
+        paths=AppPaths(tmp_path / "data", tmp_path / "logs"),
+        browser_service=FixtureDiscoveryBrowserService(
+            navigation_status=NavigationStatus.LOGIN_REQUIRED
+        ),
+        start_browser_on_startup=False,
+    )
+    stored = app.state.reservations.create(
+        checkable_reservation().model_copy(update={"children": 0})
+    )
+
+    with TestClient(app) as client:
+        client.post(
+            f"/reservations/{stored.id}/discover-alternatives",
+            data={"csrf_token": app.state.csrf, "destination": "Nice"},
+        )
+        detail = client.get(f"/reservations/{stored.id}")
+
+    assert "Booking.com vyžaduje ruční zásah." in detail.text
+    assert 'href="/browser">Prohlížeč</a>' in detail.text
+    assert "Verified Alternative Hotel" not in detail.text
+    assert app.state.history.list_for_reservation(stored.id) == []
 
 
 def test_detail_translates_hard_alternative_diagnostics_without_internal_codes(tmp_path) -> None:  # noqa: ANN001

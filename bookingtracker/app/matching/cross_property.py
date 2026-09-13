@@ -22,6 +22,8 @@ class QualifiedDiscoveryAlternative(BaseModel):
     rate: RateOffer
     quality: PropertyQuality
     comparable: Literal[False] = False
+    room_category: Literal["equivalent", "better"] = "equivalent"
+    objective_improvements: list[str] = Field(default_factory=list)
     qualification_evidence: list[str] = Field(default_factory=list)
 
 
@@ -55,7 +57,7 @@ class CrossPropertyAlternativeVerifier:
 
         qualified: list[QualifiedDiscoveryAlternative] = []
         for rate in detail_offers:
-            reason = self._rate_rejection(reservation, card, rate)
+            reason, improvements = self._rate_qualification(reservation, card, rate)
             if reason:
                 rejected[reason] = rejected.get(reason, 0) + 1
                 continue
@@ -65,6 +67,8 @@ class CrossPropertyAlternativeVerifier:
                     detail_url=card.detail_url,
                     rate=rate,
                     quality=detail_quality,
+                    room_category="better" if improvements else "equivalent",
+                    objective_improvements=improvements,
                     qualification_evidence=[
                         "detail property identity confirmed",
                         "requested occupancy confirmed",
@@ -90,32 +94,34 @@ class CrossPropertyAlternativeVerifier:
         )
 
     @staticmethod
-    def _rate_rejection(reservation: Reservation, card: SearchCard, rate: RateOffer) -> str | None:
+    def _rate_qualification(
+        reservation: Reservation, card: SearchCard, rate: RateOffer
+    ) -> tuple[str | None, list[str]]:
         if normalized_tokens(rate.property_name or "") != normalized_tokens(card.property_name):
-            return "detail_property_identity_not_confirmed"
+            return "detail_property_identity_not_confirmed", []
         _score, warning, occupancy_rejection = ExactReservationMatcher._occupancy(reservation, rate)
         if occupancy_rejection or warning:
-            return "occupancy_not_confirmed"
+            return "occupancy_not_confirmed", []
         if reservation.rooms_count != 1:
-            return "room_count_not_supported"
+            return "room_count_not_supported", []
         if CrossPropertyAlternativeVerifier._meal_rejection(reservation, rate):
-            return "meal_not_confirmed"
+            return "meal_not_confirmed", []
         if CrossPropertyAlternativeVerifier._cancellation_rejection(reservation, rate):
-            return "cancellation_not_confirmed"
+            return "cancellation_not_confirmed", []
         if CrossPropertyAlternativeVerifier._payment_rejection(reservation, rate):
-            return "payment_not_confirmed"
+            return "payment_not_confirmed", []
         if reservation.currency != rate.currency:
-            return "currency_not_confirmed"
+            return "currency_not_confirmed", []
         if rate.taxes_included is not True or rate.current_price <= Decimal("0"):
-            return "tax_inclusive_total_not_confirmed"
-        room_rejections, _differences, _evidence = ExactReservationMatcher._room_facts(
+            return "tax_inclusive_total_not_confirmed", []
+        room_rejections, improvements, _evidence = ExactReservationMatcher._room_facts(
             extract_room_facts(reservation.room_type or ""),
             rate.room_facts,
             normalized_tokens(reservation.room_type or "") == normalized_tokens(rate.room_name),
         )
         if room_rejections:
-            return "room_not_confirmed"
-        return None
+            return "room_not_confirmed", []
+        return None, improvements
 
     @staticmethod
     def _meal_rejection(reservation: Reservation, rate: RateOffer) -> bool:
