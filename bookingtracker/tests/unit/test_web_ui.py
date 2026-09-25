@@ -2324,6 +2324,7 @@ def test_check_now_returns_immediately_when_shared_runner_is_busy(tmp_path) -> N
     stored = app.state.reservations.create(checkable_reservation())
     pipeline = BlockingManualCheckPipeline(app.state.history)
     app.state.runner.checks = pipeline
+    app.state.runner.clock = lambda: datetime(2026, 9, 4, 12, tzinfo=UTC)
     running = Thread(target=lambda: app.state.runner.run_check(stored.id, CheckTrigger.SCHEDULER))
     running.start()
     assert pipeline.started.wait(timeout=1)
