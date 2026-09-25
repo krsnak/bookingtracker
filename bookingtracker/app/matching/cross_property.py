@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from app.booking.models import PropertyQuality, RateOffer, SearchCard
 from app.booking.room_facts import extract_room_facts
 from app.matching.matcher import ExactReservationMatcher
-from app.matching.normalization import normalized_tokens
+from app.matching.normalization import normalized_tokens, utc_datetime
 from app.reservations.models import Reservation
 
 
@@ -150,7 +150,8 @@ class CrossPropertyAlternativeVerifier:
         if reservation.cancellation_deadline is not None:
             return (
                 rate.cancellation_deadline is None
-                or rate.cancellation_deadline < reservation.cancellation_deadline
+                or utc_datetime(rate.cancellation_deadline)
+                < utc_datetime(reservation.cancellation_deadline)
             )
         return False
 

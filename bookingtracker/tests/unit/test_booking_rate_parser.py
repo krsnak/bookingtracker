@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 from app.booking.models import ParseStatus
-from app.booking.normalization import parse_price
+from app.booking.normalization import parse_cancellation_deadline, parse_price
 from app.booking.parser import BookingRateParser
 from app.booking.room_facts import extract_room_facts
 from app.matching.matcher import ExactReservationMatcher
@@ -37,7 +37,7 @@ def test_papaya_room_yields_two_distinct_rate_offers() -> None:
     assert first.breakfast_genius_benefit is True
     assert first.free_cancellation is True
     assert first.non_refundable is False
-    assert first.cancellation_deadline == datetime(2026, 9, 4)
+    assert first.cancellation_deadline == datetime(2026, 9, 4, tzinfo=UTC)
     assert first.payment_conditions == "No payment until 2 September 2026"
     assert first.taxes_included is True
     assert second.current_price == Decimal("19.50")
@@ -61,7 +61,7 @@ def test_multiple_czech_rooms_and_optional_unknowns_are_preserved() -> None:
     assert first.breakfast_included is True
     assert first.breakfast_genius_benefit is False
     assert first.free_cancellation is True
-    assert first.cancellation_deadline == datetime(2026, 9, 4)
+    assert first.cancellation_deadline == datetime(2026, 9, 4, tzinfo=UTC)
     assert family.genius is None
     assert family.breakfast_included is None
     assert family.cancellation_text is None
@@ -74,6 +74,12 @@ def test_localized_price_formats_are_decimal_safe() -> None:
     assert parse_price("490 Kč") == (Decimal("490"), "CZK")
     assert parse_price("€ 18.88") == (Decimal("18.88"), "EUR")
     assert parse_price("NOK 1,400") == (Decimal("1400"), "NOK")
+
+
+def test_cancellation_deadline_accepts_booking_month_first_english_format() -> None:
+    assert parse_cancellation_deadline("before July 24, 2027 Free cancellation") == datetime(
+        2027, 7, 24, tzinfo=UTC
+    )
 
 
 def test_no_availability_is_not_unsupported_structure() -> None:
@@ -112,6 +118,51 @@ def test_legacy_booking_rate_row_fallback_is_scoped_and_explicit() -> None:
     assert offer.free_cancellation is True
     assert offer.taxes_included is True
     assert offer.evidence["rate_selector"] == "tr.js-rt-block-row"
+
+
+def test_legacy_parser_uses_explicit_page_property_and_inline_tax_evidence() -> None:
+    html = """
+    <main>
+      <h1 id="hp_hotel_name">Hôtel Petit Palais</h1>
+      <table class="hprt-table">
+        <tr class="js-rt-block-row">
+          <td><a class="hprt-roomtype-link">Standard Double Room</a>
+          <span class="hprt-roomtype-occupancy-text">2 adults</span></td>
+          <td><span class="bui-price-display__value">€ 605</span>
+          <span>Total € 605.35 Includes taxes and fees</span></td>
+          <td><span data-testid="cancellation-policy">Non-refundable</span></td>
+        </tr>
+      </table>
+    </main>
+    """
+
+    result = PARSER.parse_html(html, source_url="https://example.test/hotel")
+
+    assert result.status is ParseStatus.SUCCESS
+    assert len(result.offers) == 1
+    offer = result.offers[0]
+    assert offer.property_name == "Hôtel Petit Palais"
+    assert offer.occupancy_text == "2 adults"
+    assert offer.taxes_included is True
+    assert offer.taxes_text == "Includes taxes and fees"
+
+
+def test_legacy_parser_recovers_unique_explicit_occupancy_without_legacy_span() -> None:
+    html = """
+    <table class="hprt-table">
+      <tr class="js-rt-block-row">
+        <td><a class="hprt-roomtype-link">Deluxe Triple Room</a>
+        <span>Sleeps: 3 adults</span></td>
+        <td><span class="bui-price-display__value">€ 300</span>
+        <span>Includes taxes and fees</span></td>
+      </tr>
+    </table>
+    """
+
+    result = PARSER.parse_html(html, source_url="https://example.test/hotel")
+
+    assert result.offers[0].occupancy_text == "3 adults"
+    assert result.offers[0].room_facts.room_capacity == 3
 
 
 def test_storhaugen_missing_optional_evidence_keeps_parsing_later_exact_offer() -> None:

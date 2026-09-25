@@ -8,7 +8,7 @@ from decimal import Decimal
 from app.booking.models import RateOffer, RoomFacts
 from app.booking.room_facts import extract_room_facts
 from app.matching.models import CandidateEvaluation, MatchClassification, MatchResult
-from app.matching.normalization import normalized_tokens, same_room_identity
+from app.matching.normalization import normalized_tokens, same_room_identity, utc_datetime
 from app.reservations.models import Reservation
 
 
@@ -222,9 +222,42 @@ class ExactReservationMatcher:
         if reservation.meal_plan:
             if rate.meal_plan is None:
                 return Decimal("0"), None, "candidate meal plan is missing", None
-            if normalized_tokens(reservation.meal_plan) != normalized_tokens(rate.meal_plan):
+            if (
+                normalized_tokens(reservation.meal_plan) != normalized_tokens(rate.meal_plan)
+                and not ExactReservationMatcher._breakfast_meal_plan_equivalent(reservation, rate)
+            ):
                 return Decimal("0"), None, "candidate meal plan differs from booked meal plan", None
         return Decimal("1"), None, None, None
+
+    @staticmethod
+    def _breakfast_meal_plan_equivalent(reservation: Reservation, rate: RateOffer) -> bool:
+        if reservation.breakfast_included is not True or rate.breakfast_included is not True:
+            return False
+        if not reservation.meal_plan or not rate.meal_plan:
+            return False
+
+        def breakfast_only(value: str) -> bool:
+            tokens = normalized_tokens(value)
+            has_breakfast = "breakfast" in tokens or any(
+                token.startswith("snidan") for token in tokens
+            )
+            has_other_meal = bool(
+                tokens
+                & {
+                    "lunch",
+                    "dinner",
+                    "obed",
+                    "vecere",
+                    "polopenze",
+                    "plna",
+                    "half",
+                    "full",
+                    "board",
+                }
+            )
+            return has_breakfast and not has_other_meal
+
+        return breakfast_only(reservation.meal_plan) and breakfast_only(rate.meal_plan)
 
     @staticmethod
     def _cancellation(
@@ -236,9 +269,11 @@ class ExactReservationMatcher:
         if reservation.cancellation_deadline:
             if rate.cancellation_deadline is None:
                 return Decimal("0"), None, "candidate cancellation deadline is missing", None
-            if rate.cancellation_deadline < reservation.cancellation_deadline:
+            candidate_deadline = utc_datetime(rate.cancellation_deadline)
+            booked_deadline = utc_datetime(reservation.cancellation_deadline)
+            if candidate_deadline < booked_deadline:
                 return Decimal("0"), None, "candidate cancellation deadline is earlier", None
-            if rate.cancellation_deadline > reservation.cancellation_deadline:
+            if candidate_deadline > booked_deadline:
                 return Decimal("1"), None, None, "later free cancellation deadline"
         return Decimal("1"), None, None, None
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import UTC, datetime
 
 _FILLER_TOKENS = {"with", "and", "the", "a", "an", "bed", "beds", "s", "se"}
 
@@ -16,6 +17,12 @@ def normalized_tokens(value: str) -> set[str]:
     }
     return normalized - _FILLER_TOKENS
 
+
+
+def utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 def same_room_identity(booked_name: str, candidate_name: str) -> bool:
     """Allow only punctuation/plural normalization for an exact room identity."""

@@ -134,14 +134,15 @@ class BookingRateParser:
             legacy_rates = root.all_class(BookingSelectors.LEGACY_RATE_CLASS)
             if legacy_rates:
                 return self._parse_legacy_rows(
-                    legacy_rates, property_name=None, source_url=source_url
+                    legacy_rates,
+                    property_name=self._property_name(root),
+                    source_url=source_url,
                 )
             return ParseResult(
                 status=ParseStatus.UNSUPPORTED_STRUCTURE,
                 warnings=["no Booking room containers found"],
             )
-        property_node = root.first_test_id("property-name")
-        property_name = property_node.text() if property_node else None
+        property_name = self._property_name(root)
         offers: list[RateOffer] = []
         warnings: list[str] = []
         partial = False
@@ -203,14 +204,21 @@ class BookingRateParser:
             cancellation_text = cancellation_node.text() if cancellation_node else None
             taxes_text = taxes_node.text() if taxes_node else None
             free_cancellation, non_refundable = self._cancellation_flags(cancellation_text)
+            occupancy_text = (
+                occupancy_node.text()
+                if occupancy_node
+                else self._explicit_occupancy(rate_text)
+            )
+            breakfast_included = self._breakfast_included(rate_text)
             offers.append(
                 RateOffer(
                     property_name=property_name,
                     room_name=room_name,
                     normalized_room_name=normalize_room_name(room_name),
-                    occupancy_text=occupancy_node.text() if occupancy_node else None,
-                    room_facts=extract_room_facts(rate_text),
-                    breakfast_included=self._breakfast_included(rate_text),
+                    occupancy_text=occupancy_text,
+                    room_facts=self._legacy_room_facts(room_name, rate_text),
+                    meal_plan="Breakfast included" if breakfast_included is True else None,
+                    breakfast_included=breakfast_included,
                     breakfast_genius_benefit=self._genius_breakfast(rate_text),
                     current_price=current_price,
                     currency=currency,
@@ -219,8 +227,8 @@ class BookingRateParser:
                     cancellation_text=cancellation_text,
                     non_refundable=non_refundable,
                     payment_conditions=payment_node.text() if payment_node else None,
-                    taxes_included=self._taxes_included(taxes_text),
-                    taxes_text=taxes_text,
+                    taxes_included=self._taxes_included(taxes_text or rate_text),
+                    taxes_text=taxes_text or self._explicit_taxes_text(rate_text),
                     source_row_text=rate_text,
                     source_url=source_url,
                     scrape_timestamp=datetime.now(),
@@ -334,6 +342,61 @@ class BookingRateParser:
         )
 
     @staticmethod
+    def _legacy_room_facts(room_name: str, rate_text: str):
+        facts = extract_room_facts(rate_text)
+        named = extract_room_facts(room_name)
+        updates = {}
+        if named.accommodation_kind is not None:
+            updates["accommodation_kind"] = named.accommodation_kind
+        if named.room_capacity is not None:
+            updates["room_capacity"] = named.room_capacity
+        return facts.model_copy(update=updates)
+
+    @staticmethod
+    def _explicit_occupancy(value: str) -> str | None:
+        adult_matches = {
+            int(match)
+            for match in re.findall(r"\b(\d+)\s+(?:adults?|dospěl[íe])\b", value, re.I)
+        }
+        child_matches = {
+            int(match)
+            for match in re.findall(r"\b(\d+)\s+(?:children?|dět[íi])\b", value, re.I)
+        }
+        if len(adult_matches) != 1 or len(child_matches) > 1:
+            return None
+        adults = next(iter(adult_matches))
+        if child_matches:
+            return f"{adults} adults {next(iter(child_matches))} children"
+        return f"{adults} adults"
+
+    @staticmethod
+    def _property_name(root: Node) -> str | None:
+        modern = root.first_test_id("property-name")
+        if modern and modern.text():
+            return modern.text()
+        for node in root.descendants():
+            if node.attrs.get("id") in {"hp_hotel_name", "hotel_name"} and node.text():
+                return node.text()
+            classes = set(node.attrs.get("class", "").split())
+            if classes.intersection({"pp-header__title", "hp__hotel-name"}) and node.text():
+                return node.text()
+        return None
+
+    @staticmethod
+    def _explicit_taxes_text(value: str) -> str | None:
+        if text_contains(
+            value,
+            "includes taxes and fees",
+            "taxes and fees included",
+            "včetně daní a poplatků",
+            "zahrnuje daně a poplatky",
+        ):
+            return "Includes taxes and fees"
+        if text_contains(value, "taxes and fees excluded", "bez daní a poplatků"):
+            return "Taxes and fees excluded"
+        return None
+
+    @staticmethod
     def _discount_percent(value: str) -> int | None:
         import re
 
@@ -372,6 +435,7 @@ class BookingRateParser:
             return None
         if text_contains(
             value,
+            "includes taxes and fees",
             "taxes and fees included",
             "včetně daní a poplatků",
             "zahrnuje daně a poplatky",

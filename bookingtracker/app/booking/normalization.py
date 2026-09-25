@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "Kč": "CZK", "kr": "NOK", "MAD": "MAD"}
@@ -70,17 +70,22 @@ def text_contains(value: str, *phrases: str) -> bool:
 def parse_cancellation_deadline(value: str) -> datetime | None:
     patterns = (
         r"(?:before|until)\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})",
+        r"(?:before|until)\s+([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})",
         r"(?:před|do)\s+(\d{1,2})\.?\s*([A-Za-z]+)\s+(\d{4})",
     )
     for pattern in patterns:
         match = re.search(pattern, value, re.IGNORECASE)
         if not match:
             continue
-        day, month, year = match.groups()
+        first, second, year = match.groups()
+        if first.isdigit():
+            day, month = first, second
+        else:
+            month, day = first, second
         month = _CZECH_MONTHS.get(month.casefold(), month)
         for date_format in ("%d %B %Y", "%d %b %Y"):
             try:
-                return datetime.strptime(f"{day} {month} {year}", date_format)
+                return datetime.strptime(f"{day} {month} {year}", date_format).replace(tzinfo=UTC)
             except ValueError:
                 continue
     return None

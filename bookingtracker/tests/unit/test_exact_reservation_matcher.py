@@ -109,6 +109,24 @@ def test_genius_breakfast_satisfies_booked_breakfast() -> None:
     assert result.classification is MatchClassification.EXACT
 
 
+def test_localized_breakfast_only_meal_plan_is_equivalent() -> None:
+    result = MATCHER.match(
+        reservation(meal_plan="Konečná cena zahrnuje snídani", breakfast_included=True),
+        [rate(meal_plan="Breakfast included", breakfast_included=True)],
+    )
+
+    assert result.accepted
+
+
+def test_breakfast_only_equivalence_does_not_hide_other_meal_plan_difference() -> None:
+    result = MATCHER.match(
+        reservation(meal_plan="Polopenze se snídaní a večeří", breakfast_included=True),
+        [rate(meal_plan="Breakfast included", breakfast_included=True)],
+    )
+
+    assert not result.accepted
+
+
 def test_non_refundable_downgrade_is_rejected() -> None:
     result = MATCHER.match(reservation(), [rate(non_refundable=True, free_cancellation=False)])
 

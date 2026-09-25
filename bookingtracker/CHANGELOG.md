@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2
+
+- Opraven legacy parser Booking.com pro název hotelu, explicitní daně, obsazenost a kapacitu pokoje; název pokoje má při určení kapacity přednost před okolním textem nabídky.
+- Doplněno rozpoznání anglického storno data ve formátu `before July 24, 2027` a bezpečné UTC porovnání storno termínů.
+- Breakfast-only podmínky se bezpečně porovnají i mezi českým a anglickým zněním; jiné meal plány se nadále nezaměňují.
+- Regresní replay nad produkční historií obnovil bezpečnou porovnatelnost u dříve odmítnutých nabídek bez uvolnění pravidel pro horší podmínky.
+
 ## 0.9.1
 
 - Přidáno ruční hledání jiného ubytování do detailu rezervace. Vyžaduje destinaci, používá
